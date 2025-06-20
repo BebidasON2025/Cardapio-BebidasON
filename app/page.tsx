@@ -119,7 +119,7 @@ const Rodape = () => {
       <div className="max-w-6xl mx-auto px-4">
         <div className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0">
           <div className="text-center md:text-left">
-            <p className="text-lg font-bold text-yellow-400 mb-1">© 2024 Bebidas ON</p>
+            <p className="text-lg font-bold text-yellow-400 mb-1">© 2022 Bebidas ON</p>
             <p className="text-sm text-gray-300">Todos os direitos reservados</p>
           </div>
           <div className="flex items-center space-x-4 text-center md:text-right">
