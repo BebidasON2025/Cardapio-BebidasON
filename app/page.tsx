@@ -2185,7 +2185,7 @@ export default function BebidasOnApp() {
                       ) : (
                         <>
                           <Plus className="w-5 h-5" />
-                          <span className="truncate">Adicionar ao Carrinho</span>
+                          <span className="text-center">Adicionar ao Carrinho</span>
                         </>
                       )}
                     </Button>
