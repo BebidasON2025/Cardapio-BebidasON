@@ -2174,7 +2174,7 @@ export default function BebidasOnApp() {
                     <Button
                       onClick={() => adicionarAoCarrinho(bebida)}
                       disabled={bebida.estoque === 0}
-                      className={`w-full py-3 rounded-xl font-bold text-sm sm:text-base md:text-lg transition-all duration-200 hover-lift whitespace-normal ${
+                      className={`w-full py-3 rounded-xl font-bold text-sm sm:text-base md:text-lg transition-all duration-200 hover-lift whitespace-nowrap ${
                         bebida.estoque === 0
                           ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                           : "bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white shadow-lg hover:shadow-xl"
@@ -2184,9 +2184,8 @@ export default function BebidasOnApp() {
                         "❌ Esgotado"
                       ) : (
                         <>
-                          <Plus className="w-5 h-5 mr-2" />
-                          <span className="block sm:inline">Adicionar ao</span>
-                          <span className="block sm:inline">Carrinho</span>
+                          <Plus className="w-5 h-5" />
+                          Adicionar ao Carrinho
                         </>
                       )}
                     </Button>
@@ -2199,7 +2198,7 @@ export default function BebidasOnApp() {
 
         {bebidasFiltradas.length === 0 && (
           <div className="text-center py-16">
-            <div className="bg-gradient-to-br from-orange-100 to-yellow-100 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-6">
+            <div className="bg-gradient-to-br from-orange-100 to-yellow-100 rounded-full w-24 h-24 flex items-center justify-center gap-2 mx-auto mb-6">
               <Search className="w-12 h-12 text-orange-500" />
             </div>
             <h2 className="text-2xl font-bold text-gray-700 mb-2">Nenhuma bebida encontrada</h2>
