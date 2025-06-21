@@ -2174,7 +2174,7 @@ export default function BebidasOnApp() {
                     <Button
                       onClick={() => adicionarAoCarrinho(bebida)}
                       disabled={bebida.estoque === 0}
-                      className={`w-full max-w-[90%] mx-auto py-3 rounded-xl font-bold text-sm sm:text-base md:text-lg transition-all duration-200 hover-lift flex items-center justify-center gap-2 whitespace-nowrap ${
+                      className={`w-full px-2 py-2 rounded-xl font-semibold text-[13px] sm:text-sm md:text-base transition-all duration-200 hover-lift flex items-center justify-center gap-2 ${
                         bebida.estoque === 0
                           ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                           : "bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white shadow-lg hover:shadow-xl"
@@ -2184,7 +2184,7 @@ export default function BebidasOnApp() {
                         "❌ Esgotado"
                       ) : (
                         <>
-                          <Plus className="w-5 h-5" />
+                          <Plus className="w-4 h-4" />
                           Adicionar ao Carrinho
                         </>
                       )}
