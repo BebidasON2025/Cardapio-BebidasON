@@ -166,6 +166,7 @@ export default function BebidasOnApp() {
   const [contadorVendas, setContadorVendas] = useState(0)
   const [tipoEntrega, setTipoEntrega] = useState<"entrega" | "retirada">("retirada")
   const [enderecoEntrega, setEnderecoEntrega] = useState("")
+  const [quantidadesSelecionadas, setQuantidadesSelecionadas] = useState<{ [key: number]: number }>({})
 
   const [novoItem, setNovoItem] = useState({
     nome: "",
@@ -190,23 +191,30 @@ export default function BebidasOnApp() {
   // 💾 CARREGAR DADOS
   useEffect(() => {
     carregarDados()
-    carregarContadorVendas()
+    // Remover: carregarContadorVendas()
   }, [])
 
   const carregarDados = async () => {
-    await Promise.all([carregarCategorias(), carregarBebidas(), carregarPedidos()])
+    await Promise.all([carregarCategorias(), carregarBebidas()])
+    // Remover carregarPedidos() para sempre começar limpo
   }
 
   const carregarContadorVendas = () => {
-    const contador = localStorage.getItem("contadorVendas")
-    setContadorVendas(contador ? Number.parseInt(contador) : 0)
+    // Sempre começar do zero - remover localStorage
+    setContadorVendas(0)
   }
 
   const incrementarContadorVendas = () => {
     const novoContador = contadorVendas + 1
     setContadorVendas(novoContador)
-    localStorage.setItem("contadorVendas", novoContador.toString())
+    // Não salvar no localStorage para sempre começar do zero
     return novoContador
+  }
+
+  // 🆔 GERAR ID ÚNICO PARA PEDIDOS - CORRIGIDO E SIMPLIFICADO
+  const gerarIdUnico = () => {
+    const numeroVenda = incrementarContadorVendas()
+    return `VN${numeroVenda.toString().padStart(4, "0")}`
   }
 
   const carregarCategorias = async () => {
@@ -264,48 +272,42 @@ export default function BebidasOnApp() {
   const carregarPedidos = async () => {
     try {
       console.log("🔄 Carregando pedidos...")
-      const { data, error } = await supabase
-        .from("pedidos")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50)
 
-      if (error) {
-        if (error.message.includes("does not exist")) {
-          console.log("⚠️ Tabela pedidos ainda não existe")
-          setPedidos([])
-          return
-        }
-        console.error("❌ Erro ao carregar pedidos:", error)
-        return
-      }
-
-      const pedidosLimpos = (data || []).map((pedido) => ({
-        ...pedido,
-        formaPagamento: pedido.forma_pagamento || "pix",
-        tipoEntrega: pedido.tipo_entrega || "retirada",
-        enderecoEntrega: pedido.endereco_entrega || "",
-        itens: Array.isArray(pedido.itens) ? pedido.itens : [],
-      }))
-
-      setPedidos(pedidosLimpos)
-      console.log("✅ Pedidos carregados:", data?.length)
+      // Sempre começar com lista vazia - não carregar pedidos antigos
+      setPedidos([])
+      console.log("✅ Lista de pedidos resetada - começando do zero")
     } catch (error) {
       console.error("❌ Erro ao carregar pedidos:", error)
       setPedidos([])
     }
   }
 
-  const adicionarAoCarrinho = (bebida: Bebida) => {
+  const getQuantidadeSelecionada = (bebidaId: number) => {
+    return quantidadesSelecionadas[bebidaId] || 1
+  }
+
+  const setQuantidadeSelecionada = (bebidaId: number, quantidade: number) => {
+    setQuantidadesSelecionadas((prev) => ({
+      ...prev,
+      [bebidaId]: quantidade,
+    }))
+  }
+
+  const adicionarAoCarrinho = (bebida: Bebida, quantidade = 1) => {
     if (bebida.estoque === 0) {
       alert("❌ Produto esgotado!")
+      return
+    }
+
+    if (quantidade > bebida.estoque) {
+      alert(`❌ Estoque insuficiente! Disponível: ${bebida.estoque}`)
       return
     }
 
     setCarrinho((prev) => {
       const itemExistente = prev.find((item) => item.bebida.id === bebida.id)
       if (itemExistente) {
-        const novaQuantidade = itemExistente.quantidade + 1
+        const novaQuantidade = itemExistente.quantidade + quantidade
         if (novaQuantidade <= bebida.estoque) {
           return prev.map((item) => (item.bebida.id === bebida.id ? { ...item, quantidade: novaQuantidade } : item))
         } else {
@@ -313,7 +315,7 @@ export default function BebidasOnApp() {
           return prev
         }
       }
-      return [...prev, { bebida, quantidade: 1 }]
+      return [...prev, { bebida, quantidade }]
     })
   }
 
@@ -327,10 +329,9 @@ export default function BebidasOnApp() {
     })
   }
 
-  const totalCarrinho =
-    carrinho.reduce((total, item) => {
-      return total + item.bebida.preco * item.quantidade
-    }, 0) + (carrinho.length > 0 && tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
+  const totalCarrinho = carrinho.reduce((total, item) => {
+    return total + item.bebida.preco * item.quantidade
+  }, 0)
 
   const subtotalItens = carrinho.reduce((total, item) => {
     return total + item.bebida.preco * item.quantidade
@@ -341,7 +342,8 @@ export default function BebidasOnApp() {
   const calcularTroco = () => {
     if (formaPagamento === "dinheiro" && valorPago) {
       const valor = Number.parseFloat(valorPago)
-      return valor > totalCarrinho ? valor - totalCarrinho : 0
+      const totalComTaxa = totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
+      return valor > totalComTaxa ? valor - totalComTaxa : 0
     }
     return 0
   }
@@ -355,17 +357,15 @@ export default function BebidasOnApp() {
       return
     }
 
-    if (!nomeCliente.trim()) {
-      alert("❌ Por favor, informe seu nome")
-      return
-    }
+    const nomeClientePadrao = "Cliente"
 
     if (tipoEntrega === "entrega" && !enderecoEntrega.trim()) {
       alert("❌ Por favor, informe o endereço para entrega")
       return
     }
 
-    if (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalCarrinho)) {
+    const totalComTaxa = totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
+    if (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComTaxa)) {
       alert("❌ Valor pago deve ser maior ou igual ao total do pedido")
       return
     }
@@ -374,18 +374,18 @@ export default function BebidasOnApp() {
       setCarregando(true)
       console.log("💾 Salvando pedido no banco...")
 
-      const numeroVenda = incrementarContadorVendas()
-      const idUnico = `VN-${numeroVenda.toString().padStart(6, "0")}`
+      // Gerar ID único com timestamp para evitar duplicatas
+      const idUnico = gerarIdUnico()
 
       const novoPedido: Pedido = {
         id: idUnico,
         data: new Date().toLocaleString("pt-BR"),
         itens: [...carrinho],
-        total: totalCarrinho,
+        total: totalComTaxa, // MUDANÇA: usar totalComTaxa em vez de totalCarrinho
         formaPagamento,
         valorPago: formaPagamento === "dinheiro" ? Number.parseFloat(valorPago) : undefined,
         troco: formaPagamento === "dinheiro" ? calcularTroco() : undefined,
-        cliente: nomeCliente,
+        cliente: nomeClientePadrao,
         tipoEntrega,
         enderecoEntrega: tipoEntrega === "entrega" ? enderecoEntrega : undefined,
         status: "enviado",
@@ -393,25 +393,48 @@ export default function BebidasOnApp() {
 
       console.log("📋 Dados do pedido:", novoPedido)
 
-      const { error } = await supabase.from("pedidos").insert([
-        {
-          id: novoPedido.id,
-          cliente: novoPedido.cliente,
-          total: novoPedido.total,
-          forma_pagamento: novoPedido.formaPagamento,
-          valor_pago: novoPedido.valorPago,
-          troco: novoPedido.troco,
-          itens: novoPedido.itens,
-          tipo_entrega: novoPedido.tipoEntrega,
-          endereco_entrega: novoPedido.enderecoEntrega,
-          status: novoPedido.status,
-        },
-      ])
+      // Tentar inserir com retry em caso de conflito
+      let tentativas = 0
+      let sucesso = false
 
-      if (error) {
-        console.error("❌ Erro ao salvar pedido:", error)
-        alert(`❌ Erro ao finalizar pedido: ${error.message}`)
-        return
+      while (!sucesso && tentativas < 3) {
+        try {
+          const { error } = await supabase.from("pedidos").insert([
+            {
+              id: tentativas > 0 ? gerarIdUnico() : novoPedido.id, // Gerar novo ID se for retry
+              cliente: novoPedido.cliente,
+              total: novoPedido.total,
+              forma_pagamento: novoPedido.formaPagamento,
+              valor_pago: novoPedido.valorPago,
+              troco: novoPedido.troco,
+              itens: novoPedido.itens,
+              tipo_entrega: novoPedido.tipoEntrega,
+              endereco_entrega: novoPedido.enderecoEntrega,
+              status: novoPedido.status,
+            },
+          ])
+
+          if (error) {
+            if (error.message.includes("duplicate key")) {
+              tentativas++
+              console.log(`⚠️ ID duplicado, tentativa ${tentativas}/3`)
+              continue
+            } else {
+              throw error
+            }
+          } else {
+            sucesso = true
+          }
+        } catch (error) {
+          if (tentativas >= 2) {
+            throw error
+          }
+          tentativas++
+        }
+      }
+
+      if (!sucesso) {
+        throw new Error("Não foi possível gerar um ID único após 3 tentativas")
       }
 
       console.log("✅ Pedido salvo com sucesso!")
@@ -419,7 +442,7 @@ export default function BebidasOnApp() {
       // Atualizar estoque
       console.log("📦 Atualizando estoque...")
       for (const item of carrinho) {
-        const novoEstoque = item.bebida.estoque - item.quantidade
+        const novoEstoque = Math.max(0, item.bebida.estoque - item.quantidade)
         const { error: estoqueError } = await supabase
           .from("bebidas")
           .update({ estoque: novoEstoque })
@@ -438,7 +461,7 @@ export default function BebidasOnApp() {
       console.log("✅ Pedido finalizado com sucesso:", novoPedido.id)
     } catch (error) {
       console.error("❌ Erro ao finalizar pedido:", error)
-      alert("❌ Erro ao finalizar pedido. Tente novamente.")
+      alert(`❌ Erro ao finalizar pedido: ${error instanceof Error ? error.message : "Erro desconhecido"}`)
     } finally {
       setCarregando(false)
     }
@@ -451,7 +474,8 @@ export default function BebidasOnApp() {
       let mensagem = `🍻 *PEDIDO BEBIDAS ON* 🍻\n`
       mensagem += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
       mensagem += `📋 *Pedido:* #${pedidoAtual.id}\n`
-      mensagem += `👤 *Cliente:* ${pedidoAtual.cliente}\n`
+      // Remover esta linha:
+      //mensagem += `👤 *Cliente:* ${pedidoAtual.cliente}\n`
       mensagem += `📅 *Data:* ${pedidoAtual.data}\n`
 
       if (pedidoAtual.tipoEntrega === "entrega") {
@@ -510,7 +534,6 @@ export default function BebidasOnApp() {
 
       setTimeout(() => {
         setCarrinho([])
-        setNomeCliente("")
         setEnderecoEntrega("")
         setValorPago("")
         setFormaPagamento("pix")
@@ -1409,7 +1432,6 @@ export default function BebidasOnApp() {
               <h1 className="text-3xl font-bold text-yellow-400 mb-2">BEBIDAS ON</h1>
               <p className="text-gray-300 text-lg">Comprovante de Venda</p>
             </div>
-
             {/* Informações da Empresa */}
             <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
               <div>
@@ -1421,14 +1443,11 @@ export default function BebidasOnApp() {
                 <p className="font-semibold text-xs">46.203.975/8000-00</p>
               </div>
             </div>
-
             <div className="mb-6">
               <p className="text-gray-300 text-sm">Endereço:</p>
               <p className="font-semibold">Rua Amazonas 239 - Paraíso/SP</p>
             </div>
-
             <hr className="border-gray-600 mb-6" />
-
             {/* Informações do Pedido */}
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>
@@ -1440,14 +1459,7 @@ export default function BebidasOnApp() {
                 <p className="font-semibold text-sm">{pedidoAtual.data}</p>
               </div>
             </div>
-
-            <div className="mb-6">
-              <p className="text-gray-300 text-sm">Cliente:</p>
-              <p className="font-bold text-lg uppercase">{pedidoAtual.cliente}</p>
-            </div>
-
             <hr className="border-gray-600 mb-6" />
-
             {/* Informações de Entrega */}
             <div className="mb-6">
               <p className="text-gray-300 text-sm">Tipo de Entrega:</p>
@@ -1461,9 +1473,7 @@ export default function BebidasOnApp() {
                 </div>
               )}
             </div>
-
             <hr className="border-gray-600 mb-6" />
-
             {/* Itens da Venda */}
             <div className="mb-6">
               <p className="text-gray-300 text-sm mb-4">Itens da Venda:</p>
@@ -1483,9 +1493,7 @@ export default function BebidasOnApp() {
                 ))}
               </div>
             </div>
-
             <hr className="border-gray-600 mb-6" />
-
             {/* Total */}
             <div className="space-y-2 mb-6">
               <div className="flex justify-between text-sm">
@@ -1508,7 +1516,6 @@ export default function BebidasOnApp() {
                 <span className="text-yellow-400">R$ {pedidoAtual.total.toFixed(2)}</span>
               </div>
             </div>
-
             {/* Forma de Pagamento */}
             <div className="text-center bg-gray-700 p-3 rounded-lg">
               <p className="text-gray-300 text-sm">FORMA DE PAGAMENTO</p>
@@ -1568,7 +1575,6 @@ export default function BebidasOnApp() {
               variant="outline"
               onClick={() => {
                 setCarrinho([])
-                setNomeCliente("")
                 setValorPago("")
                 setFormaPagamento("pix")
                 setPedidoAtual(null)
@@ -1586,6 +1592,8 @@ export default function BebidasOnApp() {
 
   // TELA DE PAGAMENTO
   if (telaAtual === "pagamento") {
+    const totalComEntrega = totalCarrinho + (carrinho.length > 0 && tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 animate-fadeInUp">
         <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white shadow-lg">
@@ -1633,7 +1641,7 @@ export default function BebidasOnApp() {
                 <hr className="my-3" />
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total:</span>
-                  <span className="text-green-600">R$ {totalCarrinho.toFixed(2)}</span>
+                  <span className="text-green-600">R$ {totalComEntrega.toFixed(2)}</span>
                 </div>
               </div>
             </CardContent>
@@ -1698,28 +1706,6 @@ export default function BebidasOnApp() {
                     />
                   </div>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Dados do Cliente */}
-          <Card className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift">
-            <CardHeader>
-              <CardTitle className="text-lg">👤 Seus Dados</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="nome">Nome Completo *</Label>
-                  <Input
-                    id="nome"
-                    type="text"
-                    placeholder="Digite seu nome"
-                    value={nomeCliente}
-                    onChange={(e) => setNomeCliente(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
               </div>
             </CardContent>
           </Card>
@@ -1798,12 +1784,12 @@ export default function BebidasOnApp() {
                       id="valorPago"
                       type="number"
                       step="0.01"
-                      placeholder={`Mínimo: R$ ${totalCarrinho.toFixed(2)}`}
+                      placeholder={`Mínimo: R$ ${totalComEntrega.toFixed(2)}`}
                       value={valorPago}
                       onChange={(e) => setValorPago(e.target.value)}
                       className="mt-2"
                     />
-                    {valorPago && Number.parseFloat(valorPago) >= totalCarrinho && (
+                    {valorPago && Number.parseFloat(valorPago) >= totalComEntrega && (
                       <div className="mt-2 p-2 bg-green-100 rounded text-green-800 text-sm">
                         {calcularTroco() > 0 ? (
                           <p>💰 Troco: R$ {calcularTroco().toFixed(2)}</p>
@@ -1823,9 +1809,8 @@ export default function BebidasOnApp() {
             onClick={finalizarPedido}
             disabled={
               carregando ||
-              !nomeCliente.trim() ||
               (tipoEntrega === "entrega" && !enderecoEntrega.trim()) ||
-              (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalCarrinho))
+              (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComEntrega))
             }
             className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-xl py-6 rounded-xl font-bold shadow-lg hover-lift"
           >
@@ -1850,31 +1835,31 @@ export default function BebidasOnApp() {
   if (telaAtual === "carrinho") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 animate-fadeInUp flex flex-col">
-        <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white shadow-lg">
+        <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-3 text-white shadow-lg">
           <div className="flex items-center justify-between max-w-4xl mx-auto">
             <Button
               variant="ghost"
               onClick={() => setTelaAtual("cardapio")}
-              className="text-white hover:bg-white/20 font-semibold hover-lift"
+              className="text-white hover:bg-white/20 font-medium hover-lift text-sm px-3 py-2"
             >
-              ← Voltar ao Cardápio
+              ← Voltar
             </Button>
-            <h1 className="text-xl md:text-2xl font-bold">🛒 Meu Carrinho</h1>
-            <div className="w-20 md:w-32"></div>
+            <h1 className="text-lg md:text-xl font-bold">🛒 Meu Carrinho</h1>
+            <div className="w-16 md:w-20"></div>
           </div>
         </div>
 
-        <div className="flex-1 max-w-4xl mx-auto p-4 space-y-4">
+        <div className="flex-1 max-w-4xl mx-auto p-3 space-y-3">
           {carrinho.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="bg-gradient-to-br from-orange-100 to-yellow-100 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-6">
-                <ShoppingCart className="w-12 h-12 text-orange-500" />
+            <div className="text-center py-16 animate-fadeInScale">
+              <div className="bg-gradient-to-br from-orange-100 to-yellow-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 animate-bounce-custom">
+                <ShoppingCart className="w-10 h-10 text-orange-500" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-700 mb-2">Carrinho vazio</h2>
-              <p className="text-gray-500 mb-6">Que tal adicionar algumas bebidas geladas?</p>
+              <h2 className="text-xl font-bold text-gray-700 mb-2">Carrinho vazio</h2>
+              <p className="text-gray-500 mb-6 text-sm">Que tal adicionar algumas bebidas geladas?</p>
               <Button
                 onClick={() => setTelaAtual("cardapio")}
-                className="bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold px-8 py-3 rounded-xl hover-lift"
+                className="bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold px-6 py-3 rounded-xl hover-lift animate-pulse-custom"
               >
                 🍻 Ver Cardápio
               </Button>
@@ -1882,32 +1867,35 @@ export default function BebidasOnApp() {
           ) : (
             <>
               <div className="space-y-3">
-                {carrinho.map((item) => (
+                {carrinho.map((item, index) => (
                   <Card
                     key={item.bebida.id}
-                    className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift"
+                    className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift transition-all duration-300 animate-fadeInUp"
+                    style={{ animationDelay: `${index * 0.1}s` }}
                   >
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4 flex-1">
-                          <div className="w-16 h-16 rounded-lg overflow-hidden">
+                    <CardContent className="p-4">
+                      {/* Layout Mobile Otimizado */}
+                      <div className="space-y-3">
+                        {/* Linha 1: Imagem + Nome + Preço */}
+                        <div className="flex items-center space-x-3">
+                          <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 animate-fadeInScale">
                             <Image
                               src={item.bebida.imagem || "/placeholder.svg"}
                               alt={item.bebida.nome}
-                              width={64}
-                              height={64}
-                              className="w-full h-full object-cover"
+                              width={56}
+                              height={56}
+                              className="w-full h-full object-cover transition-transform duration-300 hover:scale-110"
                             />
                           </div>
-                          <div className="flex-1">
-                            <h3 className="font-bold text-lg text-gray-800">{item.bebida.nome}</h3>
-                            <div className="flex items-center space-x-2 mt-1">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-base text-gray-800 truncate">{item.bebida.nome}</h3>
+                            <div className="flex items-center justify-between mt-1">
                               <span className="text-lg font-bold text-green-600">
                                 R$ {item.bebida.preco.toFixed(2)}
                               </span>
                               {item.bebida.categoria && (
                                 <Badge
-                                  className={`${getCorCategoria(item.bebida.categoria.cor).classeBg} ${getCorCategoria(item.bebida.categoria.cor).classeTexto}`}
+                                  className={`text-xs px-2 py-1 ${getCorCategoria(item.bebida.categoria.cor).classeBg} ${getCorCategoria(item.bebida.categoria.cor).classeTexto} animate-slideInRight`}
                                 >
                                   {item.bebida.categoria.nome}
                                 </Badge>
@@ -1915,53 +1903,61 @@ export default function BebidasOnApp() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-4">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => removerDoCarrinho(item.bebida.id)}
-                            className="border-orange-300 hover:bg-orange-100 hover-lift"
-                          >
-                            <Minus className="w-4 h-4" />
-                          </Button>
-                          <span className="font-bold text-xl w-8 text-center">{item.quantidade}</span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => adicionarAoCarrinho(item.bebida)}
-                            disabled={item.quantidade >= item.bebida.estoque}
-                            className="border-orange-300 hover:bg-orange-100 hover-lift"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </Button>
+
+                        {/* Linha 2: Controles de Quantidade */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3 bg-gray-50 rounded-lg p-2 animate-slideInLeft">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => removerDoCarrinho(item.bebida.id)}
+                              className="h-8 w-8 p-0 border-orange-300 hover:bg-orange-100 hover-lift transition-all duration-200"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </Button>
+                            <span className="font-bold text-lg w-8 text-center animate-pulse">{item.quantidade}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => adicionarAoCarrinho(item.bebida)}
+                              disabled={item.quantidade >= item.bebida.estoque}
+                              className="h-8 w-8 p-0 border-orange-300 hover:bg-orange-100 hover-lift transition-all duration-200"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </Button>
+                          </div>
+
+                          {/* Subtotal do Item */}
+                          <div className="text-right animate-slideInRight">
+                            <span className="text-lg font-bold text-orange-600">
+                              R$ {(item.bebida.preco * item.quantidade).toFixed(2)}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-right mt-3">
-                        <span className="text-xl font-bold text-orange-600">
-                          R$ {(item.bebida.preco * item.quantidade).toFixed(2)}
-                        </span>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
 
-              <Card className="bg-gradient-to-r from-green-50 to-yellow-50 border-2 border-green-300 shadow-xl hover-lift">
-                <CardContent className="p-8">
-                  <div className="text-center mb-6">
-                    <h3 className="text-2xl font-bold text-gray-800 mb-2">💰 Total do Pedido</h3>
-                    <div className="space-y-1 mb-2">
-                      <div className="text-lg text-gray-600">Subtotal: R$ {subtotalItens.toFixed(2)}</div>
-                      <div className="text-sm text-gray-500">+ Taxa de entrega: R$ {TAXA_ENTREGA.toFixed(2)}</div>
+              {/* Card do Total */}
+              <Card className="bg-gradient-to-r from-green-50 to-yellow-50 border-2 border-green-300 shadow-xl hover-lift animate-fadeInScale">
+                <CardContent className="p-6">
+                  <div className="text-center mb-4">
+                    <h3 className="text-xl font-bold text-gray-800 mb-2 animate-bounce">💰 Total do Pedido</h3>
+                    <div className="space-y-1 mb-2 animate-fadeInUp">
+                      <div className="text-base text-gray-600">Subtotal: R$ {subtotalItens.toFixed(2)}</div>
                     </div>
-                    <div className="text-4xl font-bold text-green-600 mb-2">R$ {totalCarrinho.toFixed(2)}</div>
-                    <p className="text-gray-600">
+                    <div className="text-3xl font-bold text-green-600 mb-2 animate-pulse-custom">
+                      R$ {totalCarrinho.toFixed(2)}
+                    </div>
+                    <p className="text-gray-600 text-sm">
                       {totalItens} {totalItens === 1 ? "item" : "itens"} selecionados
                     </p>
                   </div>
                   <Button
                     onClick={() => setTelaAtual("pagamento")}
-                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-xl py-6 rounded-xl font-bold shadow-lg hover-lift"
+                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-lg py-4 rounded-xl font-bold shadow-lg hover-lift animate-glow transition-all duration-300"
                   >
                     💳 Continuar para Pagamento
                   </Button>
@@ -1977,52 +1973,81 @@ export default function BebidasOnApp() {
     )
   }
 
-  // TELA INICIAL
+  // TELA INICIAL - COM ANIMAÇÕES MELHORADAS
   if (telaAtual === "inicio") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-400 via-orange-500 to-yellow-500 flex flex-col">
-        <div className="flex-1 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-orange-400 via-orange-500 to-yellow-500 flex flex-col overflow-hidden">
+        {/* Elementos flutuantes de fundo */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-10 left-10 w-20 h-20 bg-white/10 rounded-full animate-float"></div>
+          <div
+            className="absolute top-32 right-16 w-16 h-16 bg-white/5 rounded-full animate-float"
+            style={{ animationDelay: "1s" }}
+          ></div>
+          <div
+            className="absolute bottom-32 left-20 w-12 h-12 bg-white/10 rounded-full animate-float"
+            style={{ animationDelay: "2s" }}
+          ></div>
+          <div
+            className="absolute bottom-20 right-32 w-24 h-24 bg-white/5 rounded-full animate-float"
+            style={{ animationDelay: "0.5s" }}
+          ></div>
+          <div
+            className="absolute top-1/2 left-8 w-8 h-8 bg-white/10 rounded-full animate-float"
+            style={{ animationDelay: "1.5s" }}
+          ></div>
+          <div
+            className="absolute top-1/3 right-8 w-14 h-14 bg-white/5 rounded-full animate-float"
+            style={{ animationDelay: "2.5s" }}
+          ></div>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center p-4 relative z-10">
           <div className="text-center space-y-8 max-w-md w-full">
-            {/* Logo da empresa */}
-            <div className="glass-effect rounded-3xl p-8 shadow-2xl border border-white/20 hover-lift">
+            {/* Logo da empresa com animações */}
+            <div className="glass-effect rounded-3xl p-8 shadow-2xl border border-white/20 hover-lift animate-fadeInScale">
               <div className="mb-6">
-                <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl border-4 border-white/30">
+                <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl border-4 border-white/30 animate-glow">
                   <Image
                     src="/logo-bebidas-on.png"
                     alt="Bebidas ON Logo"
                     width={200}
                     height={200}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover animate-float"
                     priority
                   />
                 </div>
               </div>
-              <h1 className="text-4xl font-bold text-white mb-2">BEBIDAS ON</h1>
-              <div className="bg-gradient-to-r from-yellow-300 to-green-400 bg-clip-text text-transparent">
+              <h1 className="text-4xl font-bold text-white mb-2 animate-bounce-custom">BEBIDAS ON</h1>
+              <div className="bg-gradient-to-r from-yellow-300 to-green-400 bg-clip-text text-transparent animate-pulse-custom">
                 <p className="text-xl font-bold mb-2">🚚 DELIVERY PREMIUM</p>
               </div>
-              <p className="text-white/90 text-lg font-medium">Buzinou, chegou! 📱</p>
+              <p className="text-white/90 text-lg font-medium animate-slideInUp">Buzinou, chegou! 📱</p>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 animate-fadeInUp" style={{ animationDelay: "0.3s" }}>
               <Button
                 onClick={() => setTelaAtual("cardapio")}
-                className="w-full bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 text-white text-lg py-6 rounded-2xl font-bold shadow-xl hover-lift"
+                className="w-full bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 text-white text-lg py-6 rounded-2xl font-bold shadow-xl hover-lift animate-glow"
               >
                 🍻 Ver Cardápio Completo
               </Button>
 
               <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="glass-effect rounded-xl p-3 border border-white/20 hover-lift">
-                  <div className="text-2xl mb-1">⚡</div>
+                <div className="glass-effect rounded-xl p-3 border border-white/20 hover-lift animate-slideInLeft stagger-1">
+                  <div className="text-2xl mb-1 animate-bounce">⚡</div>
                   <p className="text-white/80 text-xs font-medium">Entrega Rápida</p>
                 </div>
-                <div className="glass-effect rounded-xl p-3 border border-white/20 hover-lift">
-                  <div className="text-2xl mb-1">🧊</div>
+                <div className="glass-effect rounded-xl p-3 border border-white/20 hover-lift animate-fadeInScale stagger-2">
+                  <div className="text-2xl mb-1 animate-bounce" style={{ animationDelay: "0.2s" }}>
+                    🧊
+                  </div>
                   <p className="text-white/80 text-xs font-medium">Sempre Gelado</p>
                 </div>
-                <div className="glass-effect rounded-xl p-3 border border-white/20 hover-lift">
-                  <div className="text-2xl mb-1">💳</div>
+                <div className="glass-effect rounded-xl p-3 border border-white/20 hover-lift animate-slideInRight stagger-3">
+                  <div className="text-2xl mb-1 animate-bounce" style={{ animationDelay: "0.4s" }}>
+                    💳
+                  </div>
                   <p className="text-white/80 text-xs font-medium">Pix, Cartão ou Dinheiro</p>
                 </div>
               </div>
@@ -2050,7 +2075,7 @@ export default function BebidasOnApp() {
           </Button>
           <div className="flex items-center space-x-3">
             <div
-              className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/30 cursor-pointer hover-lift"
+              className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/30 cursor-pointer hover-lift animate-glow"
               onDoubleClick={acessoAdmin}
             >
               <Image
@@ -2058,7 +2083,7 @@ export default function BebidasOnApp() {
                 alt="Logo"
                 width={40}
                 height={40}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover animate-float"
               />
             </div>
             <h1 className="text-2xl font-bold">Cardápio</h1>
@@ -2071,7 +2096,7 @@ export default function BebidasOnApp() {
             <ShoppingCart className="w-6 h-6 mr-2" />
             <span className="hidden sm:inline">Carrinho</span>
             {totalItens > 0 && (
-              <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[20px] h-5 flex items-center justify-center rounded-full">
+              <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[20px] h-5 flex items-center justify-center rounded-full animate-bounce">
                 {totalItens}
               </Badge>
             )}
@@ -2126,14 +2151,15 @@ export default function BebidasOnApp() {
 
         {/* Lista de Bebidas */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {bebidasFiltradas.map((bebida) => {
+          {bebidasFiltradas.map((bebida, index) => {
             const IconeComponent = bebida.categoria ? getIconeCategoria(bebida.categoria.icone) : Package
             const corInfo = bebida.categoria ? getCorCategoria(bebida.categoria.cor) : getCorCategoria("amber")
 
             return (
               <Card
                 key={bebida.id}
-                className="shadow-lg border-0 bg-gradient-to-br from-white to-gray-50 hover-lift transition-all duration-300 hover:shadow-xl"
+                className="shadow-lg border-0 bg-gradient-to-br from-white to-gray-50 hover-lift transition-all duration-300 hover:shadow-xl animate-fadeInUp"
+                style={{ animationDelay: `${index * 0.1}s` }}
               >
                 <CardContent className="p-6">
                   <div className="relative mb-4">
@@ -2147,7 +2173,7 @@ export default function BebidasOnApp() {
                       />
                     </div>
                     <div className="absolute top-2 right-2">
-                      <Badge className={`${getStatusEstoque(bebida.estoque).cor} text-white`}>
+                      <Badge className={`${getStatusEstoque(bebida.estoque).cor} text-white animate-pulse`}>
                         {bebida.estoque === 0 ? "Esgotado" : bebida.estoque <= 5 ? `${bebida.estoque}` : "OK"}
                       </Badge>
                     </div>
@@ -2161,7 +2187,7 @@ export default function BebidasOnApp() {
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
-                        <span className="text-2xl font-bold text-green-600">R$ {bebida.preco.toFixed(2)}</span>
+                        <span className="text-xl font-bold text-green-600">R$ {bebida.preco.toFixed(2)}</span>
                         {bebida.categoria && (
                           <Badge className={`${corInfo.classeBg} ${corInfo.classeTexto} flex items-center space-x-1`}>
                             <IconeComponent className="w-3 h-3" />
@@ -2171,21 +2197,51 @@ export default function BebidasOnApp() {
                       </div>
                     </div>
 
+                    {/* Seletor de Quantidade */}
+                    {bebida.estoque > 0 && (
+                      <div className="flex items-center justify-center space-x-2 bg-gray-50 rounded-lg p-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setQuantidadeSelecionada(bebida.id, Math.max(1, getQuantidadeSelecionada(bebida.id) - 1))
+                          }
+                          className="h-8 w-8 p-0 border-orange-300 hover:bg-orange-100"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </Button>
+                        <span className="font-bold text-lg w-8 text-center">{getQuantidadeSelecionada(bebida.id)}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setQuantidadeSelecionada(
+                              bebida.id,
+                              Math.min(bebida.estoque, getQuantidadeSelecionada(bebida.id) + 1),
+                            )
+                          }
+                          className="h-8 w-8 p-0 border-orange-300 hover:bg-orange-100"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
+
                     <Button
-                      onClick={() => adicionarAoCarrinho(bebida)}
+                      onClick={() => adicionarAoCarrinho(bebida, getQuantidadeSelecionada(bebida.id))}
                       disabled={bebida.estoque === 0}
-                      className={`w-full px-2 py-2 rounded-xl font-semibold text-[11px] sm:text-sm md:text-base transition-all duration-200 hover-lift flex items-center justify-center gap-0.5 whitespace-nowrap ${
+                      className={`w-full px-2 py-2 rounded-xl font-semibold text-[10px] sm:text-xs transition-all duration-200 hover-lift flex items-center justify-center gap-1 whitespace-nowrap ${
                         bebida.estoque === 0
                           ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                          : "bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white shadow-lg hover:shadow-xl"
+                          : "bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white shadow-lg hover:shadow-xl animate-glow"
                       }`}
                     >
                       {bebida.estoque === 0 ? (
                         "❌ Esgotado"
                       ) : (
                         <>
-                          <Plus className="w-4 h-4" />
-                          Adicionar ao Carrinho
+                          <Plus className="w-3 h-3" />
+                          <span>Adicionar ao Carrinho</span>
                         </>
                       )}
                     </Button>
