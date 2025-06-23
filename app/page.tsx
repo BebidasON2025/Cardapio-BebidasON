@@ -199,22 +199,29 @@ export default function BebidasOnApp() {
     // Remover carregarPedidos() para sempre começar limpo
   }
 
-  const carregarContadorVendas = () => {
-    // Sempre começar do zero - remover localStorage
-    setContadorVendas(0)
-  }
+  // const carregarContadorVendas = () => {
+  //   // Sempre começar do zero - remover localStorage
+  //   setContadorVendas(0)
+  // }
 
-  const incrementarContadorVendas = () => {
-    const novoContador = contadorVendas + 1
-    setContadorVendas(novoContador)
-    // Não salvar no localStorage para sempre começar do zero
-    return novoContador
-  }
+  // const incrementarContadorVendas = () => {
+  //   const novoContador = contadorVendas + 1
+  //   setContadorVendas(novoContador)
+  //   // Não salvar no localStorage para sempre começar do zero
+  //   return novoContador
+  // }
 
   // 🆔 GERAR ID ÚNICO PARA PEDIDOS - CORRIGIDO E SIMPLIFICADO
+  // const gerarIdUnico = () => {
+  //   const numeroVenda = incrementarContadorVendas()
+  //   return `VN${numeroVenda.toString().padStart(4, "0")}`
+  // }
+
+  // 🆔 GERAR ID ÚNICO PARA PEDIDOS - VERSÃO ROBUSTA
   const gerarIdUnico = () => {
-    const numeroVenda = incrementarContadorVendas()
-    return `VN${numeroVenda.toString().padStart(4, "0")}`
+    const timestamp = Date.now().toString().slice(-8) // Últimos 8 dígitos
+    const random = Math.random().toString(36).substring(2, 6) // 4 caracteres aleatórios
+    return `VN${timestamp}${random}` // Formato: VN12345678abcd (14 chars total)
   }
 
   const carregarCategorias = async () => {
@@ -374,14 +381,14 @@ export default function BebidasOnApp() {
       setCarregando(true)
       console.log("💾 Salvando pedido no banco...")
 
-      // Gerar ID único com timestamp para evitar duplicatas
+      // Gerar ID único garantido
       const idUnico = gerarIdUnico()
 
       const novoPedido: Pedido = {
         id: idUnico,
         data: new Date().toLocaleString("pt-BR"),
         itens: [...carrinho],
-        total: totalComTaxa, // MUDANÇA: usar totalComTaxa em vez de totalCarrinho
+        total: totalComTaxa,
         formaPagamento,
         valorPago: formaPagamento === "dinheiro" ? Number.parseFloat(valorPago) : undefined,
         troco: formaPagamento === "dinheiro" ? calcularTroco() : undefined,
@@ -393,48 +400,25 @@ export default function BebidasOnApp() {
 
       console.log("📋 Dados do pedido:", novoPedido)
 
-      // Tentar inserir com retry em caso de conflito
-      let tentativas = 0
-      let sucesso = false
+      // Inserir diretamente no banco sem retry
+      const { error } = await supabase.from("pedidos").insert([
+        {
+          id: novoPedido.id,
+          cliente: novoPedido.cliente,
+          total: novoPedido.total,
+          forma_pagamento: novoPedido.formaPagamento,
+          valor_pago: novoPedido.valorPago,
+          troco: novoPedido.troco,
+          itens: novoPedido.itens,
+          tipo_entrega: novoPedido.tipoEntrega,
+          endereco_entrega: novoPedido.enderecoEntrega,
+          status: novoPedido.status,
+        },
+      ])
 
-      while (!sucesso && tentativas < 3) {
-        try {
-          const { error } = await supabase.from("pedidos").insert([
-            {
-              id: tentativas > 0 ? gerarIdUnico() : novoPedido.id, // Gerar novo ID se for retry
-              cliente: novoPedido.cliente,
-              total: novoPedido.total,
-              forma_pagamento: novoPedido.formaPagamento,
-              valor_pago: novoPedido.valorPago,
-              troco: novoPedido.troco,
-              itens: novoPedido.itens,
-              tipo_entrega: novoPedido.tipoEntrega,
-              endereco_entrega: novoPedido.enderecoEntrega,
-              status: novoPedido.status,
-            },
-          ])
-
-          if (error) {
-            if (error.message.includes("duplicate key")) {
-              tentativas++
-              console.log(`⚠️ ID duplicado, tentativa ${tentativas}/3`)
-              continue
-            } else {
-              throw error
-            }
-          } else {
-            sucesso = true
-          }
-        } catch (error) {
-          if (tentativas >= 2) {
-            throw error
-          }
-          tentativas++
-        }
-      }
-
-      if (!sucesso) {
-        throw new Error("Não foi possível gerar um ID único após 3 tentativas")
+      if (error) {
+        console.error("❌ Erro ao inserir pedido:", error)
+        throw new Error(`Erro ao salvar pedido: ${error.message}`)
       }
 
       console.log("✅ Pedido salvo com sucesso!")
