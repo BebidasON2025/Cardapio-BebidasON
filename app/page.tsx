@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect, useRef } from "react"
 import {
   ShoppingCart,
@@ -10,11 +12,7 @@ import {
   Banknote,
   Smartphone,
   Share,
-  Settings,
   Package,
-  Users,
-  BarChart3,
-  Trash2,
   Beer,
   Coffee,
   Zap,
@@ -26,7 +24,9 @@ import {
   Edit,
   Download,
   Instagram,
+  MapPin,
 } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -37,6 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import Image from "next/image"
 import { createClient } from "@supabase/supabase-js"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ToastProvider, useToast } from "@/components/toast"
 
 // 🗄️ CONFIGURAÇÃO DO SUPABASE
 const supabaseUrl = "https://ekavxyxdmorsjgviwgdk.supabase.co"
@@ -46,7 +47,7 @@ const supabaseKey =
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 // 📱 TELEFONE
-const TELEFONE_WHATSAPP = "5517996311727"
+const TELEFONE_WHATSAPP = "17996311727"
 const TELEFONE_DISPLAY = "(17) 99631-1727"
 
 interface Categoria {
@@ -85,6 +86,7 @@ interface Pedido {
   cliente: string
   tipoEntrega: "entrega" | "retirada"
   enderecoEntrega?: string
+  localizacao?: string
   status: "enviado" | "confirmado" | "entregue"
 }
 
@@ -147,6 +149,15 @@ const Rodape = () => {
 }
 
 export default function BebidasOnApp() {
+  return (
+    <ToastProvider>
+      <BebidasOnAppContent />
+    </ToastProvider>
+  )
+}
+
+function BebidasOnAppContent() {
+  const { addToast } = useToast()
   const [bebidas, setBebidas] = useState<Bebida[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [pedidos, setPedidos] = useState<Pedido[]>([])
@@ -162,11 +173,14 @@ export default function BebidasOnApp() {
   const [nomeCliente, setNomeCliente] = useState("")
   const [capturandoImagem, setCapturandoImagem] = useState(false)
   const [carregando, setCarregando] = useState(false)
-  const [abaAdmin, setAbaAdmin] = useState<"produtos" | "categorias" | "pedidos">("produtos")
-  const [contadorVendas, setContadorVendas] = useState(0)
+  const [abaAdmin, setAbaAdmin] = useState<"produtos" | "categorias" | "pedidos">("categorias")
+  const [contadorVendas, setContadorVendas] = useState(1) // Começar em 1 para gerar 0001
   const [tipoEntrega, setTipoEntrega] = useState<"entrega" | "retirada">("retirada")
   const [enderecoEntrega, setEnderecoEntrega] = useState("")
+  const [localizacaoAtual, setLocalizacaoAtual] = useState("")
   const [quantidadesSelecionadas, setQuantidadesSelecionadas] = useState<{ [key: number]: number }>({})
+  const [modoTeste, setModoTeste] = useState(false) // 🧪 MODO TESTE DESATIVADO POR PADRÃO
+  const [buscaProdutos, setBuscaProdutos] = useState("")
 
   const [novoItem, setNovoItem] = useState({
     nome: "",
@@ -191,37 +205,158 @@ export default function BebidasOnApp() {
   // 💾 CARREGAR DADOS
   useEffect(() => {
     carregarDados()
-    // Remover: carregarContadorVendas()
+    // Carregar contador do localStorage
+    const contadorSalvo = localStorage.getItem("contadorVendas")
+    if (contadorSalvo) {
+      setContadorVendas(Number.parseInt(contadorSalvo))
+    }
   }, [])
 
   const carregarDados = async () => {
-    await Promise.all([carregarCategorias(), carregarBebidas()])
-    // Remover carregarPedidos() para sempre começar limpo
+    try {
+      if (modoTeste) {
+        // 🧪 MODO TESTE - Dados fictícios
+        carregarDadosTeste()
+      } else {
+        // 🔴 MODO PRODUÇÃO - Dados reais do Supabase
+        await Promise.all([carregarCategorias(), carregarBebidas()])
+      }
+    } catch (error) {
+      console.error("❌ Erro ao carregar dados, ativando modo teste:", error)
+      // Se houver erro, ativar modo teste automaticamente
+      setModoTeste(true)
+      carregarDadosTeste()
+      addToast({
+        type: "warning",
+        title: "⚠️ Erro de conexão detectado.",
+        description: "Modo teste ativado automaticamente.",
+      })
+    }
   }
 
-  // const carregarContadorVendas = () => {
-  //   // Sempre começar do zero - remover localStorage
-  //   setContadorVendas(0)
-  // }
+  // 🧪 DADOS DE TESTE
+  const carregarDadosTeste = () => {
+    const categoriasTeste: Categoria[] = [
+      { id: 1, nome: "Cerveja", icone: "beer", cor: "amber", ativo: true },
+      { id: 2, nome: "Refrigerante", icone: "cup-soda", cor: "blue", ativo: true },
+      { id: 3, nome: "Água", icone: "droplets", cor: "blue", ativo: true },
+      { id: 4, nome: "Energético", icone: "zap", cor: "green", ativo: true },
+      { id: 5, nome: "Vinho", icone: "wine", cor: "purple", ativo: true },
+    ]
 
-  // const incrementarContadorVendas = () => {
-  //   const novoContador = contadorVendas + 1
-  //   setContadorVendas(novoContador)
-  //   // Não salvar no localStorage para sempre começar do zero
-  //   return novoContador
-  // }
+    const bebidasTeste: Bebida[] = [
+      {
+        id: 1,
+        nome: "Cerveja Skol Lata 350ml",
+        descricao: "Cerveja gelada tradicional brasileira",
+        preco: 4.5,
+        categoria_id: 1,
+        categoria: categoriasTeste[0],
+        imagem: "/placeholder.svg?height=200&width=300&text=Cerveja+Skol",
+        estoque: 25,
+        ativo: true,
+      },
+      {
+        id: 2,
+        nome: "Coca-Cola 2L",
+        descricao: "Refrigerante de cola tradicional",
+        preco: 8.9,
+        categoria_id: 2,
+        categoria: categoriasTeste[1],
+        imagem: "/placeholder.svg?height=200&width=300&text=Coca+Cola",
+        estoque: 15,
+        ativo: true,
+      },
+      {
+        id: 3,
+        nome: "Água Crystal 500ml",
+        descricao: "Água mineral natural",
+        preco: 2.5,
+        categoria_id: 3,
+        categoria: categoriasTeste[2],
+        imagem: "/placeholder.svg?height=200&width=300&text=Água+Crystal",
+        estoque: 30,
+        ativo: true,
+      },
+      {
+        id: 4,
+        nome: "Red Bull 250ml",
+        descricao: "Energético que te dá asas",
+        preco: 12.9,
+        categoria_id: 4,
+        categoria: categoriasTeste[3],
+        imagem: "/placeholder.svg?height=200&width=300&text=Red+Bull",
+        estoque: 8,
+        ativo: true,
+      },
+      {
+        id: 5,
+        nome: "Heineken Long Neck",
+        descricao: "Cerveja premium importada",
+        preco: 7.5,
+        categoria_id: 1,
+        categoria: categoriasTeste[0],
+        imagem: "/placeholder.svg?height=200&width=300&text=Heineken",
+        estoque: 12,
+        ativo: true,
+      },
+      {
+        id: 6,
+        nome: "Vinho Tinto Seco",
+        descricao: "Vinho nacional de qualidade",
+        preco: 25.9,
+        categoria_id: 5,
+        categoria: categoriasTeste[4],
+        imagem: "/placeholder.svg?height=200&width=300&text=Vinho+Tinto",
+        estoque: 5,
+        ativo: true,
+      },
+    ]
 
-  // 🆔 GERAR ID ÚNICO PARA PEDIDOS - CORRIGIDO E SIMPLIFICADO
-  // const gerarIdUnico = () => {
-  //   const numeroVenda = incrementarContadorVendas()
-  //   return `VN${numeroVenda.toString().padStart(4, "0")}`
-  // }
+    setCategorias(categoriasTeste)
+    setBebidas(bebidasTeste)
+    console.log("🧪 Dados de teste carregados")
+  }
 
-  // 🆔 GERAR ID ÚNICO PARA PEDIDOS - VERSÃO ROBUSTA
+  // 🆔 GERAR ID ÚNICO PARA PEDIDOS - VERSÃO SEQUENCIAL
   const gerarIdUnico = () => {
-    const timestamp = Date.now().toString().slice(-8) // Últimos 8 dígitos
-    const random = Math.random().toString(36).substring(2, 6) // 4 caracteres aleatórios
-    return `VN${timestamp}${random}` // Formato: VN12345678abcd (14 chars total)
+    const numeroFormatado = contadorVendas.toString().padStart(4, "0")
+    const novoContador = contadorVendas + 1
+    setContadorVendas(novoContador)
+    localStorage.setItem("contadorVendas", novoContador.toString())
+    return `VN${numeroFormatado}` // ID simples: VN0001, VN0002, etc.
+  }
+
+  // 📍 OBTER LOCALIZAÇÃO ATUAL COM MAPA
+  const obterLocalizacaoAtual = () => {
+    return new Promise<string>((resolve, reject) => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude
+            const lng = position.coords.longitude
+            const localizacao = `📍 Localização: https://maps.google.com/?q=${lat},${lng}`
+            setLocalizacaoAtual(localizacao)
+            console.log("✅ Localização obtida automaticamente:", localizacao)
+            resolve(localizacao)
+          },
+          (error) => {
+            console.warn("❌ Erro ao obter localização:", error)
+            setLocalizacaoAtual("")
+            resolve("") // Continuar sem localização
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 300000,
+          },
+        )
+      } else {
+        console.warn("❌ Geolocalização não suportada")
+        setLocalizacaoAtual("")
+        resolve("")
+      }
+    })
   }
 
   const carregarCategorias = async () => {
@@ -231,13 +366,14 @@ export default function BebidasOnApp() {
 
       if (error) {
         console.error("❌ Erro ao carregar categorias:", error)
-        return
+        throw error
       }
 
       setCategorias(data || [])
       console.log("✅ Categorias carregadas:", data?.length)
     } catch (error) {
       console.error("❌ Erro ao carregar categorias:", error)
+      throw error // Re-throw para ser capturado em carregarDados
     }
   }
 
@@ -252,7 +388,7 @@ export default function BebidasOnApp() {
 
       if (bebidasError) {
         console.error("❌ Erro ao carregar bebidas:", bebidasError)
-        return
+        throw bebidasError
       }
 
       const { data: categoriasData, error: categoriasError } = await supabase
@@ -262,6 +398,7 @@ export default function BebidasOnApp() {
 
       if (categoriasError) {
         console.error("❌ Erro ao carregar categorias para bebidas:", categoriasError)
+        throw categoriasError
       }
 
       const bebidasComCategorias = (bebidasData || []).map((bebida) => {
@@ -273,19 +410,7 @@ export default function BebidasOnApp() {
       console.log("✅ Bebidas carregadas:", bebidasComCategorias.length)
     } catch (error) {
       console.error("❌ Erro ao carregar bebidas:", error)
-    }
-  }
-
-  const carregarPedidos = async () => {
-    try {
-      console.log("🔄 Carregando pedidos...")
-
-      // Sempre começar com lista vazia - não carregar pedidos antigos
-      setPedidos([])
-      console.log("✅ Lista de pedidos resetada - começando do zero")
-    } catch (error) {
-      console.error("❌ Erro ao carregar pedidos:", error)
-      setPedidos([])
+      throw error // Re-throw para ser capturado em carregarDados
     }
   }
 
@@ -302,12 +427,20 @@ export default function BebidasOnApp() {
 
   const adicionarAoCarrinho = (bebida: Bebida, quantidade = 1) => {
     if (bebida.estoque === 0) {
-      alert("❌ Produto esgotado!")
+      addToast({
+        type: "error",
+        title: "Produto esgotado!",
+        description: "Este item não está mais disponível no estoque.",
+      })
       return
     }
 
     if (quantidade > bebida.estoque) {
-      alert(`❌ Estoque insuficiente! Disponível: ${bebida.estoque}`)
+      addToast({
+        type: "warning",
+        title: "Estoque insuficiente!",
+        description: `Disponível: ${bebida.estoque} unidades`,
+      })
       return
     }
 
@@ -318,7 +451,11 @@ export default function BebidasOnApp() {
         if (novaQuantidade <= bebida.estoque) {
           return prev.map((item) => (item.bebida.id === bebida.id ? { ...item, quantidade: novaQuantidade } : item))
         } else {
-          alert(`❌ Estoque insuficiente! Disponível: ${bebida.estoque}`)
+          addToast({
+            type: "warning",
+            title: "Estoque insuficiente!",
+            description: `Disponível: ${bebida.estoque} unidades`,
+          })
           return prev
         }
       }
@@ -360,28 +497,49 @@ export default function BebidasOnApp() {
 
     // Validações
     if (carrinho.length === 0) {
-      alert("❌ Carrinho vazio!")
+      addToast({
+        type: "error",
+        title: "Carrinho vazio!",
+        description: "Adicione alguns itens antes de finalizar o pedido.",
+      })
       return
     }
 
     const nomeClientePadrao = "Cliente"
 
     if (tipoEntrega === "entrega" && !enderecoEntrega.trim()) {
-      alert("❌ Por favor, informe o endereço para entrega")
+      addToast({
+        type: "error",
+        title: "Endereço de entrega ausente!",
+        description: "Por favor, informe o endereço para entrega.",
+      })
       return
     }
 
     const totalComTaxa = totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
     if (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComTaxa)) {
-      alert("❌ Valor pago deve ser maior ou igual ao total do pedido")
+      addToast({
+        type: "error",
+        title: "Valor pago insuficiente!",
+        description: "O valor pago deve ser maior ou igual ao total do pedido.",
+      })
       return
     }
 
     try {
       setCarregando(true)
-      console.log("💾 Salvando pedido no banco...")
 
-      // Gerar ID único garantido
+      // Obter localização se for entrega
+      let localizacaoFinal = ""
+      if (tipoEntrega === "entrega") {
+        try {
+          localizacaoFinal = await obterLocalizacaoAtual()
+        } catch (error) {
+          console.warn("⚠️ Não foi possível obter localização, continuando sem ela")
+          localizacaoFinal = ""
+        }
+      }
+      // Gerar ID único sequencial
       const idUnico = gerarIdUnico()
 
       const novoPedido: Pedido = {
@@ -395,57 +553,83 @@ export default function BebidasOnApp() {
         cliente: nomeClientePadrao,
         tipoEntrega,
         enderecoEntrega: tipoEntrega === "entrega" ? enderecoEntrega : undefined,
+        localizacao: localizacaoFinal || undefined,
         status: "enviado",
       }
 
       console.log("📋 Dados do pedido:", novoPedido)
 
-      // Inserir diretamente no banco sem retry
-      const { error } = await supabase.from("pedidos").insert([
-        {
+      if (!modoTeste) {
+        // 🔴 MODO PRODUÇÃO - Salvar no banco real
+        console.log("💾 Salvando pedido no banco...")
+
+        const dadosParaInserir: any = {
           id: novoPedido.id,
           cliente: novoPedido.cliente,
           total: novoPedido.total,
           forma_pagamento: novoPedido.formaPagamento,
-          valor_pago: novoPedido.valorPago,
-          troco: novoPedido.troco,
           itens: novoPedido.itens,
           tipo_entrega: novoPedido.tipoEntrega,
-          endereco_entrega: novoPedido.enderecoEntrega,
           status: novoPedido.status,
-        },
-      ])
-
-      if (error) {
-        console.error("❌ Erro ao inserir pedido:", error)
-        throw new Error(`Erro ao salvar pedido: ${error.message}`)
-      }
-
-      console.log("✅ Pedido salvo com sucesso!")
-
-      // Atualizar estoque
-      console.log("📦 Atualizando estoque...")
-      for (const item of carrinho) {
-        const novoEstoque = Math.max(0, item.bebida.estoque - item.quantidade)
-        const { error: estoqueError } = await supabase
-          .from("bebidas")
-          .update({ estoque: novoEstoque })
-          .eq("id", item.bebida.id)
-
-        if (estoqueError) {
-          console.error("❌ Erro ao atualizar estoque:", estoqueError)
         }
+
+        if (novoPedido.valorPago !== undefined) {
+          dadosParaInserir.valor_pago = novoPedido.valorPago
+        }
+        if (novoPedido.troco !== undefined) {
+          dadosParaInserir.troco = novoPedido.troco
+        }
+        if (novoPedido.enderecoEntrega) {
+          dadosParaInserir.endereco_entrega = novoPedido.enderecoEntrega
+        }
+        if (novoPedido.localizacao) {
+          dadosParaInserir.localizacao = novoPedido.localizacao
+        }
+
+        const { error } = await supabase.from("pedidos").insert([dadosParaInserir])
+
+        if (error) {
+          console.error("❌ Erro ao inserir pedido:", error)
+          throw new Error(`Erro ao salvar pedido: ${error.message}`)
+        }
+
+        // Atualizar estoque
+        console.log("📦 Atualizando estoque...")
+        for (const item of carrinho) {
+          const novoEstoque = Math.max(0, item.bebida.estoque - item.quantidade)
+          const { error: estoqueError } = await supabase
+            .from("bebidas")
+            .update({ estoque: novoEstoque })
+            .eq("id", item.bebida.id)
+
+          if (estoqueError) {
+            console.error("❌ Erro ao atualizar estoque:", estoqueError)
+          }
+        }
+
+        await carregarBebidas()
+      } else {
+        // 🧪 MODO TESTE - Apenas simular
+        console.log("🧪 MODO TESTE - Pedido simulado (não salvo no banco)")
+        addToast({
+          type: "info",
+          title: "🧪 MODO TESTE ATIVO",
+          description: "Pedido criado apenas para demonstração!",
+        })
       }
 
       setPedidos((prev) => [novoPedido, ...prev])
       setPedidoAtual(novoPedido)
-      await carregarBebidas()
       setTelaAtual("comprovante")
 
       console.log("✅ Pedido finalizado com sucesso:", novoPedido.id)
     } catch (error) {
       console.error("❌ Erro ao finalizar pedido:", error)
-      alert(`❌ Erro ao finalizar pedido: ${error instanceof Error ? error.message : "Erro desconhecido"}`)
+      addToast({
+        type: "error",
+        title: "Erro ao finalizar pedido",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
+      })
     } finally {
       setCarregando(false)
     }
@@ -458,13 +642,18 @@ export default function BebidasOnApp() {
       let mensagem = `🍻 *PEDIDO BEBIDAS ON* 🍻\n`
       mensagem += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
       mensagem += `📋 *Pedido:* #${pedidoAtual.id}\n`
-      // Remover esta linha:
-      //mensagem += `👤 *Cliente:* ${pedidoAtual.cliente}\n`
       mensagem += `📅 *Data:* ${pedidoAtual.data}\n`
+
+      if (modoTeste) {
+        mensagem += `🧪 *MODO TESTE ATIVO*\n`
+      }
 
       if (pedidoAtual.tipoEntrega === "entrega") {
         mensagem += `🚚 *Tipo:* ENTREGA\n`
         mensagem += `📍 *Endereço:* ${pedidoAtual.enderecoEntrega}\n`
+        if (pedidoAtual.localizacao) {
+          mensagem += `\n${pedidoAtual.localizacao}\n`
+        }
       } else {
         mensagem += `🏪 *Tipo:* RETIRADA NO LOCAL\n`
         mensagem += `📍 *Local:* Rua Amazonas 239 - Paraíso/SP\n`
@@ -527,7 +716,11 @@ export default function BebidasOnApp() {
       }, 2000)
     } catch (error) {
       console.error("Erro ao compartilhar:", error)
-      alert("❌ Erro ao compartilhar.")
+      addToast({
+        type: "error",
+        title: "Erro ao compartilhar",
+        description: "Ocorreu um erro ao tentar compartilhar o comprovante.",
+      })
     }
   }
 
@@ -556,12 +749,20 @@ export default function BebidasOnApp() {
           link.click()
           document.body.removeChild(link)
           URL.revokeObjectURL(url)
-          alert("✅ Comprovante salvo com sucesso!")
+          addToast({
+            type: "success",
+            title: "Comprovante salvo!",
+            description: "O comprovante foi salvo com sucesso na sua galeria.",
+          })
         }
       }, "image/png")
     } catch (error) {
       console.error("Erro ao salvar comprovante:", error)
-      alert("❌ Erro ao salvar comprovante.")
+      addToast({
+        type: "error",
+        title: "Erro ao salvar comprovante",
+        description: "Ocorreu um erro ao tentar salvar o comprovante.",
+      })
     } finally {
       setCapturandoImagem(false)
     }
@@ -592,7 +793,30 @@ export default function BebidasOnApp() {
 
   const adicionarNovaCategoria = async () => {
     if (!novaCategoria.nome.trim()) {
-      alert("❌ Digite o nome da categoria!")
+      addToast({
+        type: "error",
+        title: "Nome da categoria ausente!",
+        description: "Por favor, digite o nome da categoria.",
+      })
+      return
+    }
+
+    if (modoTeste) {
+      // 🧪 MODO TESTE - Apenas simular
+      const novaCategoriaTeste: Categoria = {
+        id: Date.now(),
+        nome: novaCategoria.nome,
+        icone: novaCategoria.icone,
+        cor: novaCategoria.cor,
+        ativo: true,
+      }
+      setCategorias((prev) => [...prev, novaCategoriaTeste])
+      setNovaCategoria({ nome: "", icone: "package", cor: "amber" })
+      addToast({
+        type: "info",
+        title: "🧪 TESTE: Categoria criada localmente!",
+        description: "Esta categoria não será salva no banco de dados real.",
+      })
       return
     }
 
@@ -612,16 +836,28 @@ export default function BebidasOnApp() {
 
       if (error) {
         console.error("❌ Erro ao criar categoria:", error)
-        alert(`❌ Erro ao criar categoria: ${error.message}`)
+        addToast({
+          type: "error",
+          title: "Erro ao criar categoria",
+          description: error.message,
+        })
         return
       }
 
       setNovaCategoria({ nome: "", icone: "package", cor: "amber" })
       await carregarCategorias()
-      alert("✅ Categoria criada com sucesso!")
+      addToast({
+        type: "success",
+        title: "Categoria criada!",
+        description: "A categoria foi criada com sucesso.",
+      })
     } catch (error) {
       console.error("❌ Erro ao criar categoria:", error)
-      alert("❌ Erro ao criar categoria.")
+      addToast({
+        type: "error",
+        title: "Erro ao criar categoria",
+        description: "Ocorreu um erro ao criar a categoria.",
+      })
     } finally {
       setCarregando(false)
     }
@@ -629,7 +865,34 @@ export default function BebidasOnApp() {
 
   const adicionarNovaBebida = async () => {
     if (!novoItem.nome || !novoItem.preco || !novoItem.categoria_id) {
-      alert("❌ Preencha todos os campos obrigatórios!")
+      addToast({
+        type: "error",
+        title: "Campos obrigatórios ausentes!",
+        description: "Preencha todos os campos obrigatórios para adicionar a bebida.",
+      })
+      return
+    }
+
+    if (modoTeste) {
+      // 🧪 MODO TESTE - Apenas simular
+      const novaBebidaTeste: Bebida = {
+        id: Date.now(),
+        nome: novoItem.nome,
+        descricao: novoItem.descricao,
+        preco: Number.parseFloat(novoItem.preco),
+        categoria_id: Number.parseInt(novoItem.categoria_id),
+        categoria: categorias.find((c) => c.id === Number.parseInt(novoItem.categoria_id)),
+        imagem: novoItem.imagem || "/placeholder.svg?height=200&width=300&text=Bebida+Teste",
+        estoque: Number.parseInt(novoItem.estoque) || 0,
+        ativo: true,
+      }
+      setBebidas((prev) => [...prev, novaBebidaTeste])
+      setNovoItem({ nome: "", descricao: "", preco: "", categoria_id: "", estoque: "", imagem: "" })
+      addToast({
+        type: "info",
+        title: "🧪 TESTE: Bebida criada localmente!",
+        description: "Esta bebida não será salva no banco de dados real.",
+      })
       return
     }
 
@@ -652,16 +915,28 @@ export default function BebidasOnApp() {
 
       if (error) {
         console.error("❌ Erro ao criar bebida:", error)
-        alert(`❌ Erro ao criar bebida: ${error.message}`)
+        addToast({
+          type: "error",
+          title: "Erro ao criar bebida",
+          description: error.message,
+        })
         return
       }
 
       setNovoItem({ nome: "", descricao: "", preco: "", categoria_id: "", estoque: "", imagem: "" })
       await carregarBebidas()
-      alert("✅ Bebida adicionada com sucesso!")
+      addToast({
+        type: "success",
+        title: "Bebida adicionada!",
+        description: "A bebida foi adicionada com sucesso ao cardápio.",
+      })
     } catch (error) {
       console.error("❌ Erro ao criar bebida:", error)
-      alert("❌ Erro ao criar bebida.")
+      addToast({
+        type: "error",
+        title: "Erro ao criar bebida",
+        description: "Ocorreu um erro ao adicionar a bebida.",
+      })
     } finally {
       setCarregando(false)
     }
@@ -670,65 +945,161 @@ export default function BebidasOnApp() {
   const excluirBebida = async (id: number) => {
     const bebida = bebidas.find((b) => b.id === id)
     if (bebida && confirm(`❌ Tem certeza que deseja excluir "${bebida.nome}"?`)) {
+      if (modoTeste) {
+        // 🧪 MODO TESTE - Apenas simular
+        setBebidas((prev) => prev.filter((b) => b.id !== id))
+        addToast({
+          type: "info",
+          title: "🧪 TESTE: Bebida removida localmente!",
+          description: "Esta bebida não será excluída do banco de dados real.",
+        })
+        return
+      }
+
       try {
         const { error } = await supabase.from("bebidas").delete().eq("id", id)
         if (error) {
-          alert(`❌ Erro ao excluir bebida: ${error.message}`)
+          addToast({
+            type: "error",
+            title: "Erro ao excluir bebida",
+            description: error.message,
+          })
           return
         }
         await carregarBebidas()
-        alert("✅ Bebida excluída com sucesso!")
+        addToast({
+          type: "success",
+          title: "Bebida excluída!",
+          description: "A bebida foi excluída com sucesso do cardápio.",
+        })
       } catch (error) {
-        alert("❌ Erro ao excluir bebida.")
+        addToast({
+          type: "error",
+          title: "Erro ao excluir bebida",
+          description: "Ocorreu um erro ao excluir a bebida.",
+        })
       }
     }
   }
 
   const atualizarEstoque = async (id: number, novoEstoque: number) => {
+    if (modoTeste) {
+      // 🧪 MODO TESTE - Apenas simular
+      setBebidas((prev) => prev.map((b) => (b.id === id ? { ...b, estoque: novoEstoque } : b)))
+      return
+    }
+
     try {
       const { error } = await supabase.from("bebidas").update({ estoque: novoEstoque }).eq("id", id)
-
       if (error) {
-        alert(`❌ Erro ao atualizar estoque: ${error.message}`)
+        addToast({
+          type: "error",
+          title: "Erro ao atualizar estoque",
+          description: error.message,
+        })
         return
       }
       await carregarBebidas()
     } catch (error) {
-      alert("❌ Erro ao atualizar estoque.")
+      addToast({
+        type: "error",
+        title: "Erro ao atualizar estoque",
+        description: "Ocorreu um erro ao atualizar o estoque.",
+      })
     }
   }
 
-  // 🔐 ACESSO ADMIN - CORRIGIDO
+  // 🔐 ACESSO ADMIN - CORRIGIDO COM MODO TESTE SECRETO
   const acessoAdmin = () => {
     const senha = prompt("🔐 Digite a senha de administrador:")
     if (senha === "admin123") {
       console.log("✅ Acesso admin autorizado")
       setTelaAtual("admin")
+    } else if (senha === "teste123") {
+      console.log("🧪 Modo teste ativado")
+      setModoTeste(true)
+      addToast({
+        type: "info",
+        title: "🧪 Modo teste ativado!",
+        description: "Você está agora no modo de teste.",
+      })
     } else if (senha !== null) {
-      alert("❌ Senha incorreta!")
+      addToast({
+        type: "error",
+        title: "Senha incorreta!",
+        description: "A senha digitada está incorreta.",
+      })
     }
   }
 
   const excluirCategoria = async (id: number) => {
     const categoria = categorias.find((c) => c.id === id)
     if (categoria && confirm(`❌ Tem certeza que deseja excluir "${categoria.nome}"?`)) {
+      if (modoTeste) {
+        // 🧪 MODO TESTE - Apenas simular
+        setCategorias((prev) => prev.filter((c) => c.id !== id))
+        addToast({
+          type: "info",
+          title: "🧪 TESTE: Categoria removida localmente!",
+          description: "Esta categoria não será excluída do banco de dados real.",
+        })
+        return
+      }
+
       try {
         const { error } = await supabase.from("categorias").delete().eq("id", id)
         if (error) {
-          alert(`❌ Erro ao excluir categoria: ${error.message}`)
+          addToast({
+            type: "error",
+            title: "Erro ao excluir categoria",
+            description: error.message,
+          })
           return
         }
         await carregarCategorias()
-        alert("✅ Categoria excluída com sucesso!")
+        addToast({
+          type: "success",
+          title: "Categoria excluída!",
+          description: "A categoria foi excluída com sucesso.",
+        })
       } catch (error) {
-        alert("❌ Erro ao excluir categoria.")
+        addToast({
+          type: "error",
+          title: "Erro ao excluir categoria",
+          description: "Ocorreu um erro ao excluir a categoria.",
+        })
       }
     }
   }
 
   const editarBebida = async () => {
     if (!editandoItem || !editandoItem.nome || !editandoItem.preco || !editandoItem.categoria_id) {
-      alert("❌ Preencha todos os campos obrigatórios!")
+      addToast({
+        type: "error",
+        title: "Campos obrigatórios ausentes!",
+        description: "Preencha todos os campos obrigatórios para editar a bebida.",
+      })
+      return
+    }
+
+    if (modoTeste) {
+      // 🧪 MODO TESTE - Apenas simular
+      setBebidas((prev) =>
+        prev.map((b) =>
+          b.id === editandoItem.id
+            ? {
+                ...editandoItem,
+                categoria: categorias.find((c) => c.id === editandoItem.categoria_id),
+              }
+            : b,
+        ),
+      )
+      setEditandoItem(null)
+      addToast({
+        type: "info",
+        title: "🧪 TESTE: Bebida editada localmente!",
+        description: "As alterações não serão salvas no banco de dados real.",
+      })
       return
     }
 
@@ -747,15 +1118,27 @@ export default function BebidasOnApp() {
         .eq("id", editandoItem.id)
 
       if (error) {
-        alert(`❌ Erro ao editar bebida: ${error.message}`)
+        addToast({
+          type: "error",
+          title: "Erro ao editar bebida",
+          description: error.message,
+        })
         return
       }
 
       setEditandoItem(null)
       await carregarBebidas()
-      alert("✅ Bebida editada com sucesso!")
+      addToast({
+        type: "success",
+        title: "Bebida editada!",
+        description: "A bebida foi editada com sucesso.",
+      })
     } catch (error) {
-      alert("❌ Erro ao editar bebida.")
+      addToast({
+        type: "error",
+        title: "Erro ao editar bebida",
+        description: "Ocorreu um erro ao editar a bebida.",
+      })
     } finally {
       setCarregando(false)
     }
@@ -763,7 +1146,23 @@ export default function BebidasOnApp() {
 
   const editarCategoria = async () => {
     if (!editandoCategoria || !editandoCategoria.nome.trim()) {
-      alert("❌ Digite o nome da categoria!")
+      addToast({
+        type: "error",
+        title: "Nome da categoria ausente!",
+        description: "Por favor, digite o nome da categoria.",
+      })
+      return
+    }
+
+    if (modoTeste) {
+      // 🧪 MODO TESTE - Apenas simular
+      setCategorias((prev) => prev.map((c) => (c.id === editandoCategoria.id ? editandoCategoria : c)))
+      setEditandoCategoria(null)
+      addToast({
+        type: "info",
+        title: "🧪 TESTE: Categoria editada localmente!",
+        description: "As alterações não serão salvas no banco de dados real.",
+      })
       return
     }
 
@@ -779,149 +1178,189 @@ export default function BebidasOnApp() {
         .eq("id", editandoCategoria.id)
 
       if (error) {
-        alert(`❌ Erro ao editar categoria: ${error.message}`)
+        addToast({
+          type: "error",
+          title: "Erro ao editar categoria",
+          description: error.message,
+        })
         return
       }
 
       setEditandoCategoria(null)
       await carregarCategorias()
-      alert("✅ Categoria editada com sucesso!")
+      addToast({
+        type: "success",
+        title: "Categoria editada!",
+        description: "A categoria foi editada com sucesso.",
+      })
     } catch (error) {
-      alert("❌ Erro ao editar categoria.")
+      addToast({
+        type: "error",
+        title: "Erro ao editar categoria",
+        description: "Ocorreu um erro ao editar a categoria.",
+      })
     } finally {
       setCarregando(false)
     }
   }
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const imageUrl = event.target?.result as string
+        if (editandoItem) {
+          setEditandoItem({ ...editandoItem, imagem: imageUrl })
+        } else {
+          setNovoItem({ ...novoItem, imagem: imageUrl })
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  // Recarregar dados quando mudar o modo
+  useEffect(() => {
+    carregarDados()
+  }, [modoTeste])
+
+  const produtosFiltrados = bebidas.filter(
+    (bebida) =>
+      bebida.nome.toLowerCase().includes(buscaProdutos.toLowerCase()) ||
+      (bebida.descricao && bebida.descricao.toLowerCase().includes(buscaProdutos.toLowerCase())),
+  )
+
   // TELA ADMIN - OTIMIZADA PARA MOBILE
   if (telaAtual === "admin") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-        {/* Header Admin - Mobile Otimizado */}
-        <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-3 text-white shadow-lg">
-          <div className="flex items-center justify-between">
+      <div className="min-h-screen bg-gray-50">
+        {/* Header Admin */}
+        <div className="bg-white border-b border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center justify-between max-w-7xl mx-auto">
+            <div className="flex items-center space-x-3">
+              <div className="w-6 h-6 text-gray-600">🔧</div>
+              <h1 className="text-xl font-bold text-gray-800">Painel Administrativo</h1>
+            </div>
             <Button
               variant="ghost"
               onClick={() => setTelaAtual("inicio")}
-              className="text-white hover:bg-white/20 font-semibold text-sm p-2"
+              className="text-gray-600 hover:text-gray-800"
             >
-              ← Voltar ao App
+              ✕
             </Button>
-            <h1 className="text-lg font-bold flex items-center">
-              <Settings className="w-5 h-5 mr-2" />
-              Painel Admin
-            </h1>
-            <div className="w-16"></div>
           </div>
         </div>
 
-        {/* Navegação Admin - Mobile Horizontal */}
-        <div className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
-          <div className="flex overflow-x-auto scrollbar-hide px-2">
-            <button
-              onClick={() => setAbaAdmin("produtos")}
-              className={`flex-shrink-0 py-3 px-3 border-b-2 font-medium text-sm transition-all duration-300 whitespace-nowrap ${
-                abaAdmin === "produtos"
-                  ? "border-blue-500 text-blue-600 bg-blue-50"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              <Package className="w-4 h-4 inline mr-1" />
-              Produtos ({bebidas.length})
-            </button>
+        <div className="max-w-7xl mx-auto p-6">
+          {/* Cards de Estatísticas */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="w-5 h-5 text-blue-600">📦</div>
+                <span className="text-sm font-medium text-blue-800">Produtos</span>
+              </div>
+              <div className="text-2xl font-bold text-blue-600">{bebidas.length}</div>
+            </div>
+
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="w-5 h-5 text-purple-600">🏷️</div>
+                <span className="text-sm font-medium text-purple-800">Categorias</span>
+              </div>
+              <div className="text-2xl font-bold text-purple-600">{categorias.length}</div>
+            </div>
+
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="w-5 h-5 text-green-600">📋</div>
+                <span className="text-sm font-medium text-green-800">Pedidos</span>
+              </div>
+              <div className="text-2xl font-bold text-green-600">{pedidos.length}</div>
+            </div>
+
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="w-5 h-5 text-orange-600">💰</div>
+                <span className="text-sm font-medium text-orange-800">Vendas</span>
+              </div>
+              <div className="text-2xl font-bold text-orange-600">
+                R$ {pedidos.reduce((total, pedido) => total + pedido.total, 0).toFixed(2)}
+              </div>
+            </div>
+          </div>
+
+          {/* Abas */}
+          <div className="flex space-x-1 mb-6">
             <button
               onClick={() => setAbaAdmin("categorias")}
-              className={`flex-shrink-0 py-3 px-3 border-b-2 font-medium text-sm transition-all duration-300 whitespace-nowrap ${
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
                 abaAdmin === "categorias"
-                  ? "border-blue-500 text-blue-600 bg-blue-50"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  ? "bg-orange-500 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
               }`}
             >
-              <Users className="w-4 h-4 inline mr-1" />
-              Categorias ({categorias.length})
+              🏷️ Categorias
+            </button>
+            <button
+              onClick={() => setAbaAdmin("produtos")}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                abaAdmin === "produtos"
+                  ? "bg-gray-800 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
+              }`}
+            >
+              📦 Produtos
             </button>
             <button
               onClick={() => setAbaAdmin("pedidos")}
-              className={`flex-shrink-0 py-3 px-3 border-b-2 font-medium text-sm transition-all duration-300 whitespace-nowrap ${
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
                 abaAdmin === "pedidos"
-                  ? "border-blue-500 text-blue-600 bg-blue-50"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  ? "bg-green-600 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
               }`}
             >
-              <BarChart3 className="w-4 h-4 inline mr-1" />
-              Pedidos ({pedidos.length})
+              📋 Vendas
             </button>
           </div>
-        </div>
 
-        <div className="p-3 space-y-4">
-          {/* ABA PRODUTOS - Mobile Compacta */}
-          {abaAdmin === "produtos" && (
-            <div className="space-y-4">
-              {/* Formulário Compacto */}
-              <Card className="shadow-md">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center">
-                    <Plus className="w-4 h-4 mr-2 text-green-600" />
-                    Adicionar Nova Bebida
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Input
-                    value={novoItem.nome}
-                    onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
-                    placeholder="Nome da bebida *"
-                    className="h-10"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={novoItem.preco}
-                      onChange={(e) => setNovoItem({ ...novoItem, preco: e.target.value })}
-                      placeholder="Preço (R$) *"
-                      className="h-10"
-                    />
-                    <Input
-                      type="number"
-                      value={novoItem.estoque}
-                      onChange={(e) => setNovoItem({ ...novoItem, estoque: e.target.value })}
-                      placeholder="Estoque"
-                      className="h-10"
-                    />
+          {/* Conteúdo das Abas */}
+          {abaAdmin === "categorias" && (
+            <div className="space-y-6">
+              {/* Gerenciar Categorias */}
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center space-x-2 mb-4">
+                  <div className="w-5 h-5 text-purple-600">🏷️</div>
+                  <h2 className="text-lg font-bold text-purple-600">Gerenciar Categorias</h2>
+                </div>
+
+                {/* Adicionar Nova Categoria */}
+                <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                  <div className="flex items-center space-x-2 mb-4">
+                    <div className="w-4 h-4 text-purple-600">➕</div>
+                    <h3 className="font-semibold text-gray-800">Adicionar Nova Categoria</h3>
                   </div>
-                  <Select
-                    value={novoItem.categoria_id}
-                    onValueChange={(value) => setNovoItem({ ...novoItem, categoria_id: value })}
-                  >
-                    <SelectTrigger className="h-10">
-                      <SelectValue placeholder="Selecione uma categoria *" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categorias.map((categoria) => (
-                        <SelectItem key={categoria.id} value={categoria.id.toString()}>
-                          {categoria.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Textarea
-                    value={novoItem.descricao}
-                    onChange={(e) => setNovoItem({ ...novoItem, descricao: e.target.value })}
-                    placeholder="Descrição da bebida..."
-                    rows={2}
-                    className="resize-none"
-                  />
-                  <Input
-                    value={novoItem.imagem}
-                    onChange={(e) => setNovoItem({ ...novoItem, imagem: e.target.value })}
-                    placeholder="URL da imagem"
-                    className="h-10"
-                  />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Categoria *</label>
+                      <Input
+                        value={novaCategoria.nome}
+                        onChange={(e) => setNovaCategoria({ ...novaCategoria, nome: e.target.value })}
+                        placeholder="Ex: Cervejas, Vinhos, etc."
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Descrição (opcional)</label>
+                      <Input placeholder="Descrição da categoria" className="w-full" />
+                    </div>
+                  </div>
+
                   <Button
-                    onClick={adicionarNovaBebida}
+                    onClick={adicionarNovaCategoria}
                     disabled={carregando}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white h-10"
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
                   >
                     {carregando ? (
                       <>
@@ -929,146 +1368,101 @@ export default function BebidasOnApp() {
                         Salvando...
                       </>
                     ) : (
-                      <>
-                        <Save className="w-4 h-4 mr-2" />
-                        Salvar Bebida
-                      </>
+                      <>➕ Adicionar Categoria</>
                     )}
                   </Button>
-                </CardContent>
-              </Card>
+                </div>
 
-              {/* Lista Compacta de Produtos */}
-              <Card className="shadow-md">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center">
-                    <Package className="w-4 h-4 mr-2 text-blue-600" />
-                    Produtos Cadastrados
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-2">
-                  <div className="space-y-2">
-                    {bebidas.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p className="text-sm">Nenhuma bebida cadastrada</p>
-                      </div>
-                    ) : (
-                      bebidas.map((bebida) => (
-                        <div key={bebida.id} className="border border-gray-200 rounded-lg p-3">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0">
-                              <Image
-                                src={bebida.imagem || "/placeholder.svg"}
-                                alt={bebida.nome}
-                                width={48}
-                                height={48}
-                                className="w-full h-full object-cover"
-                              />
+                {/* Categorias Existentes */}
+                <div>
+                  <div className="flex items-center space-x-2 mb-4">
+                    <div className="w-4 h-4 text-gray-600">📋</div>
+                    <h3 className="font-semibold text-gray-800">Categorias Existentes</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {categorias.map((categoria) => {
+                      const produtosDaCategoria = bebidas.filter((b) => b.categoria_id === categoria.id).length
+                      const IconeComponent = getIconeCategoria(categoria.icone)
+                      const corInfo = getCorCategoria(categoria.cor)
+
+                      return (
+                        <div
+                          key={categoria.id}
+                          className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-6 h-6 rounded ${corInfo.classe} flex items-center justify-center`}>
+                                <IconeComponent className="w-3 h-3 text-white" />
+                              </div>
+                              <h4 className="font-semibold text-gray-800">{categoria.nome}</h4>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-semibold text-sm truncate">{bebida.nome}</h3>
-                              <div className="flex items-center space-x-2 text-xs">
-                                <span className="text-green-600 font-bold">R$ {bebida.preco.toFixed(2)}</span>
-                                <span className="text-gray-500">Est: {bebida.estoque}</span>
-                                {bebida.categoria && (
-                                  <Badge className="text-xs px-1 py-0">{bebida.categoria.nome}</Badge>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex flex-col space-y-1">
-                              <div className="flex items-center space-x-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => atualizarEstoque(bebida.id, Math.max(0, bebida.estoque - 1))}
-                                  className="h-6 w-6 p-0"
-                                >
-                                  <Minus className="w-3 h-3" />
-                                </Button>
-                                <span className="text-xs font-bold w-6 text-center">{bebida.estoque}</span>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => atualizarEstoque(bebida.id, bebida.estoque + 1)}
-                                  className="h-6 w-6 p-0"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </Button>
-                              </div>
-                              <div className="flex space-x-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setEditandoItem(bebida)}
-                                  className="h-6 w-6 p-0"
-                                >
-                                  <Edit className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => excluirBebida(bebida.id)}
-                                  className="h-6 w-6 p-0 text-red-600"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </Button>
-                              </div>
+                            <div className="flex space-x-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setEditandoCategoria(categoria)}
+                                className="h-6 w-6 p-0 text-blue-600 hover:bg-blue-50"
+                              >
+                                ✏️
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => excluirCategoria(categoria.id)}
+                                className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
+                              >
+                                🗑️
+                              </Button>
                             </div>
                           </div>
+                          <div className="text-sm text-gray-600">{produtosDaCategoria} produtos</div>
+                          <div className="text-xs text-gray-500 mt-1">ID: {categoria.id}</div>
                         </div>
-                      ))
-                    )}
+                      )
+                    })}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
+            </div>
+          )}
 
-              {/* Modal de Edição de Bebida */}
-              {editandoItem && (
-                <Dialog open={!!editandoItem} onOpenChange={() => setEditandoItem(null)}>
-                  <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle className="text-lg text-gray-800 flex items-center">
-                        <Edit className="w-5 h-5 mr-2 text-blue-600" />
-                        Editar: {editandoItem.nome}
-                      </DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-3 mt-4">
+          {abaAdmin === "produtos" && (
+            <div className="space-y-6">
+              {/* Gerenciar Produtos */}
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center space-x-2 mb-4">
+                  <div className="w-5 h-5 text-orange-600">📦</div>
+                  <h2 className="text-lg font-bold text-orange-600">Gerenciar Produtos</h2>
+                </div>
+
+                {/* Adicionar Novo Produto */}
+                <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                  <div className="flex items-center space-x-2 mb-4">
+                    <div className="w-4 h-4 text-orange-600">➕</div>
+                    <h3 className="font-semibold text-gray-800">Adicionar Novo Produto</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Produto *</label>
                       <Input
-                        value={editandoItem.nome}
-                        onChange={(e) => setEditandoItem({ ...editandoItem, nome: e.target.value })}
-                        placeholder="Nome *"
-                        className="h-10"
+                        value={novoItem.nome}
+                        onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
+                        placeholder="Ex: Cerveja Artesanal IPA"
+                        className="w-full"
                       />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={editandoItem.preco}
-                          onChange={(e) =>
-                            setEditandoItem({ ...editandoItem, preco: Number.parseFloat(e.target.value) })
-                          }
-                          placeholder="Preço *"
-                          className="h-10"
-                        />
-                        <Input
-                          type="number"
-                          value={editandoItem.estoque}
-                          onChange={(e) =>
-                            setEditandoItem({ ...editandoItem, estoque: Number.parseInt(e.target.value) })
-                          }
-                          placeholder="Estoque"
-                          className="h-10"
-                        />
-                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Categoria *</label>
                       <Select
-                        value={editandoItem.categoria_id?.toString()}
-                        onValueChange={(value) =>
-                          setEditandoItem({ ...editandoItem, categoria_id: Number.parseInt(value) })
-                        }
+                        value={novoItem.categoria_id}
+                        onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
+                        onValueChange={(value) => setNovoItem({ ...novoItem, categoria_id: value })}
                       >
-                        <SelectTrigger className="h-10">
-                          <SelectValue placeholder="Categoria *" />
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Selecione uma categoria" />
                         </SelectTrigger>
                         <SelectContent>
                           {categorias.map((categoria) => (
@@ -1078,106 +1472,79 @@ export default function BebidasOnApp() {
                           ))}
                         </SelectContent>
                       </Select>
-                      <Textarea
-                        value={editandoItem.descricao}
-                        onChange={(e) => setEditandoItem({ ...editandoItem, descricao: e.target.value })}
-                        placeholder="Descrição"
-                        rows={2}
-                        className="resize-none"
-                      />
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+                    <Textarea
+                      value={novoItem.descricao}
+                      onChange={(e) => setNovoItem({ ...novoItem, descricao: e.target.value })}
+                      placeholder="Descrição detalhada do produto"
+                      rows={3}
+                      className="w-full resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$) *</label>
                       <Input
-                        value={editandoItem.imagem}
-                        onChange={(e) => setEditandoItem({ ...editandoItem, imagem: e.target.value })}
-                        placeholder="URL da imagem"
-                        className="h-10"
+                        type="number"
+                        step="0.01"
+                        value={novoItem.preco}
+                        onChange={(e) => setNovoItem({ ...novoItem, preco: e.target.value })}
+                        placeholder="15.90"
+                        className="w-full"
                       />
                     </div>
-                    <div className="flex flex-col space-y-2 mt-4">
-                      <Button
-                        onClick={editarBebida}
-                        disabled={carregando}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white h-10"
-                      >
-                        {carregando ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            Salvando...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-4 h-4 mr-2" />
-                            Salvar Alterações
-                          </>
-                        )}
-                      </Button>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Estoque *</label>
+                      <Input
+                        type="number"
+                        value={novoItem.estoque}
+                        onChange={(e) => setNovoItem({ ...novoItem, estoque: e.target.value })}
+                        placeholder="50"
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Desconto (%)</label>
+                      <Input type="number" placeholder="20" className="w-full" />
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Imagem do Produto</label>
+                    <div className="flex space-x-2">
+                      <Input
+                        value={novoItem.imagem}
+                        onChange={(e) => setNovoItem({ ...novoItem, imagem: e.target.value })}
+                        placeholder="https://exemplo.com/imagem.jpg"
+                        className="flex-1"
+                      />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                        id="upload-image"
+                      />
                       <Button
                         variant="outline"
-                        onClick={() => setEditandoItem(null)}
-                        disabled={carregando}
-                        className="w-full h-10"
+                        size="sm"
+                        className="px-3 bg-transparent"
+                        onClick={() => document.getElementById("upload-image")?.click()}
                       >
-                        Cancelar
+                        📁 Escolher
                       </Button>
                     </div>
-                  </DialogContent>
-                </Dialog>
-              )}
-            </div>
-          )}
-
-          {/* ABA CATEGORIAS - Mobile Compacta */}
-          {abaAdmin === "categorias" && (
-            <div className="space-y-4">
-              <Card className="shadow-md">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center">
-                    <Plus className="w-4 h-4 mr-2 text-green-600" />
-                    Nova Categoria
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Input
-                    value={novaCategoria.nome}
-                    onChange={(e) => setNovaCategoria({ ...novaCategoria, nome: e.target.value })}
-                    placeholder="Nome da categoria *"
-                    className="h-10"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Select
-                      value={novaCategoria.icone}
-                      onValueChange={(value) => setNovaCategoria({ ...novaCategoria, icone: value })}
-                    >
-                      <SelectTrigger className="h-10">
-                        <SelectValue placeholder="Ícone" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ICONES_CATEGORIAS.map((icone) => (
-                          <SelectItem key={icone.valor} value={icone.valor}>
-                            {icone.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={novaCategoria.cor}
-                      onValueChange={(value) => setNovaCategoria({ ...novaCategoria, cor: value })}
-                    >
-                      <SelectTrigger className="h-10">
-                        <SelectValue placeholder="Cor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CORES_CATEGORIAS.map((cor) => (
-                          <SelectItem key={cor.valor} value={cor.valor}>
-                            {cor.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </div>
+
                   <Button
-                    onClick={adicionarNovaCategoria}
+                    onClick={adicionarNovaBebida}
                     disabled={carregando}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white h-10"
+                    className="bg-orange-600 hover:bg-orange-700 text-white w-full"
                   >
                     {carregando ? (
                       <>
@@ -1185,204 +1552,365 @@ export default function BebidasOnApp() {
                         Salvando...
                       </>
                     ) : (
-                      <>
-                        <Save className="w-4 h-4 mr-2" />
-                        Salvar Categoria
-                      </>
+                      <>✅ Adicionar Produto</>
                     )}
                   </Button>
-                </CardContent>
-              </Card>
+                </div>
 
-              <Card className="shadow-md">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center">
-                    <Users className="w-4 h-4 mr-2 text-blue-600" />
-                    Categorias ({categorias.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-2">
-                  <div className="space-y-2">
-                    {categorias.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p className="text-sm">Nenhuma categoria cadastrada</p>
-                      </div>
-                    ) : (
-                      categorias.map((categoria) => {
-                        const IconeComponent = getIconeCategoria(categoria.icone)
-                        const corInfo = getCorCategoria(categoria.cor)
-                        const produtosDaCategoria = bebidas.filter((b) => b.categoria_id === categoria.id).length
+                {/* Produtos Cadastrados - LAYOUT MOBILE CORRIGIDO */}
+                <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 space-y-2 sm:space-y-0">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 text-gray-600">📋</div>
+                      <h3 className="font-semibold text-gray-800">Produtos Cadastrados</h3>
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <Input
+                        placeholder="Buscar produto..."
+                        className="pl-10 w-full"
+                        value={buscaProdutos}
+                        onChange={(e) => setBuscaProdutos(e.target.value)}
+                      />
+                    </div>
+                  </div>
 
-                        return (
-                          <div key={categoria.id} className="border border-gray-200 rounded-lg p-3">
-                            <div className="flex items-center space-x-3">
-                              <div
-                                className={`w-8 h-8 rounded-full ${corInfo.classe} flex items-center justify-center`}
-                              >
-                                <IconeComponent className="w-4 h-4 text-white" />
-                              </div>
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-sm">{categoria.nome}</h3>
-                                <p className="text-xs text-gray-500">{produtosDaCategoria} produtos</p>
-                              </div>
-                              <div className="flex space-x-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setEditandoCategoria(categoria)}
-                                  className="h-6 w-6 p-0"
-                                >
-                                  <Edit className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => excluirCategoria(categoria.id)}
-                                  className="h-6 w-6 p-0 text-red-600"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </Button>
+                  <div className="space-y-3">
+                    {produtosFiltrados.map((bebida) => (
+                      <div
+                        key={bebida.id}
+                        className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow"
+                      >
+                        {/* Layout Mobile Otimizado */}
+                        <div className="space-y-3">
+                          {/* Linha 1: Imagem + Info Principal */}
+                          <div className="flex items-start space-x-3">
+                            <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                              <Image
+                                src={bebida.imagem || "/placeholder.svg"}
+                                alt={bebida.nome}
+                                width={64}
+                                height={64}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-gray-800 text-sm leading-tight mb-1">{bebida.nome}</h4>
+                              <p className="text-xs text-gray-600 mb-2">{bebida.categoria?.nome || "Sem categoria"}</p>
+                              <div className="flex items-center justify-between">
+                                <span className="text-lg font-bold text-green-600">R$ {bebida.preco.toFixed(2)}</span>
+                                <div className="flex items-center space-x-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setEditandoItem(bebida)}
+                                    className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
+                                  >
+                                    ✏️
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => excluirBebida(bebida.id)}
+                                    className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                                  >
+                                    🗑️
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        )
-                      })
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
 
-              {/* Modal de Edição de Categoria */}
-              {editandoCategoria && (
-                <Dialog open={!!editandoCategoria} onOpenChange={() => setEditandoCategoria(null)}>
-                  <DialogContent className="max-w-[95vw]">
-                    <DialogHeader>
-                      <DialogTitle className="text-lg text-gray-800 flex items-center">
-                        <Edit className="w-5 h-5 mr-2 text-blue-600" />
-                        Editar: {editandoCategoria.nome}
-                      </DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-3 mt-4">
-                      <Input
-                        value={editandoCategoria.nome}
-                        onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
-                        placeholder="Nome *"
-                        className="h-10"
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Select
-                          value={editandoCategoria.icone}
-                          onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, icone: value })}
-                        >
-                          <SelectTrigger className="h-10">
-                            <SelectValue placeholder="Ícone" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {ICONES_CATEGORIAS.map((icone) => (
-                              <SelectItem key={icone.valor} value={icone.valor}>
-                                {icone.nome}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={editandoCategoria.cor}
-                          onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, cor: value })}
-                        >
-                          <SelectTrigger className="h-10">
-                            <SelectValue placeholder="Cor" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CORES_CATEGORIAS.map((cor) => (
-                              <SelectItem key={cor.valor} value={cor.valor}>
-                                {cor.nome}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          {/* Linha 2: Estoque */}
+                          <div className="flex items-center justify-between bg-gray-50 rounded-lg p-2">
+                            <span className="text-sm text-gray-600">Estoque disponível:</span>
+                            <span className="font-bold text-lg">{bebida.estoque} unidades</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-col space-y-2 mt-4">
-                      <Button
-                        onClick={editarCategoria}
-                        disabled={carregando}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white h-10"
-                      >
-                        {carregando ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            Salvando...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-4 h-4 mr-2" />
-                            Salvar Alterações
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setEditandoCategoria(null)}
-                        disabled={carregando}
-                        className="w-full h-10"
-                      >
-                        Cancelar
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              )}
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* ABA PEDIDOS - Mobile Compacta */}
           {abaAdmin === "pedidos" && (
-            <Card className="shadow-md">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center">
-                  <BarChart3 className="w-4 h-4 mr-2 text-green-600" />
-                  Pedidos ({pedidos.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-2">
-                <div className="space-y-2">
-                  {pedidos.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                      <p className="text-sm">Nenhum pedido encontrado</p>
+            <div className="space-y-6">
+              {/* Gerenciar Pedidos/Vendas */}
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center space-x-2 mb-4">
+                  <div className="w-5 h-5 text-green-600">📋</div>
+                  <h2 className="text-lg font-bold text-green-600">Vendas Realizadas</h2>
+                </div>
+
+                {pedidos.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <div className="text-2xl">📋</div>
                     </div>
-                  ) : (
-                    pedidos.map((pedido) => (
-                      <div key={pedido.id} className="border border-gray-200 rounded-lg p-3">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-sm">#{pedido.id}</h3>
-                            <p className="text-xs text-gray-600">{pedido.cliente}</p>
-                            <p className="text-xs text-gray-500">{pedido.data}</p>
+                    <p className="text-gray-500">Nenhuma venda realizada ainda</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {pedidos.map((pedido) => (
+                      <div key={pedido.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3">
+                          <div>
+                            <h3 className="font-bold text-lg text-gray-800">Pedido #{pedido.id}</h3>
+                            <p className="text-sm text-gray-600">{pedido.data}</p>
                           </div>
                           <div className="text-right">
-                            <p className="font-bold text-green-600 text-sm">R$ {pedido.total.toFixed(2)}</p>
-                            <Badge className="text-xs">{pedido.status}</Badge>
+                            <p className="text-xl font-bold text-green-600">R$ {pedido.total.toFixed(2)}</p>
+                            <Badge
+                              className={`${
+                                pedido.status === "enviado"
+                                  ? "bg-yellow-500"
+                                  : pedido.status === "confirmado"
+                                    ? "bg-blue-500"
+                                    : "bg-green-500"
+                              } text-white text-xs`}
+                            >
+                              {pedido.status.toUpperCase()}
+                            </Badge>
                           </div>
                         </div>
-                        <div className="mt-2 pt-2 border-t border-gray-100">
-                          <p className="text-xs text-gray-600">
-                            {pedido.itens.length} {pedido.itens.length === 1 ? "item" : "itens"} •{" "}
-                            {pedido.formaPagamento.toUpperCase()}
-                          </p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+                          <div>
+                            <p className="text-sm text-gray-600">Cliente:</p>
+                            <p className="font-semibold">{pedido.cliente}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-600">Tipo:</p>
+                            <p className="font-semibold">
+                              {pedido.tipoEntrega === "entrega" ? "🚚 Entrega" : "🏪 Retirada"}
+                            </p>
+                          </div>
+                        </div>
+
+                        {pedido.enderecoEntrega && (
+                          <div className="mb-3">
+                            <p className="text-sm text-gray-600">Endereço:</p>
+                            <p className="font-semibold text-sm">{pedido.enderecoEntrega}</p>
+                          </div>
+                        )}
+
+                        <div className="mb-3">
+                          <p className="text-sm text-gray-600">Pagamento:</p>
+                          <p className="font-semibold">{pedido.formaPagamento.toUpperCase()}</p>
+                          {pedido.formaPagamento === "dinheiro" && pedido.valorPago && (
+                            <p className="text-sm">
+                              Pago: R$ {pedido.valorPago.toFixed(2)}
+                              {pedido.troco && pedido.troco > 0 && ` | Troco: R$ ${pedido.troco.toFixed(2)}`}
+                            </p>
+                          )}
+                        </div>
+
+                        <div>
+                          <p className="text-sm text-gray-600 mb-2">Itens ({pedido.itens.length}):</p>
+                          <div className="space-y-1">
+                            {pedido.itens.map((item, index) => (
+                              <div key={index} className="flex justify-between text-sm">
+                                <span>
+                                  {item.quantidade}x {item.bebida.nome}
+                                </span>
+                                <span>R$ {(item.bebida.preco * item.quantidade).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Rodapé */}
-        <Rodape />
+        {/* Modais de Edição */}
+        {editandoItem && (
+          <Dialog open={!!editandoItem} onOpenChange={() => setEditandoItem(null)}>
+            <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-lg text-gray-800 flex items-center">
+                  <Edit className="w-5 h-5 mr-2 text-blue-600" />
+                  Editar: {editandoItem.nome}
+                  {modoTeste && <Badge className="ml-2 bg-yellow-500 text-black text-xs">🧪</Badge>}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 mt-4">
+                <Input
+                  value={editandoItem.nome}
+                  onChange={(e) => setEditandoItem({ ...editandoItem, nome: e.target.value })}
+                  placeholder="Nome *"
+                  className="h-10"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={editandoItem.preco}
+                    onChange={(e) =>
+                      setEditandoItem({ ...editandoItem, preco: Number.parseFloat(e.target.value) || 0 })
+                    }
+                    placeholder="Preço *"
+                    className="h-10"
+                  />
+                  <Input
+                    type="number"
+                    value={editandoItem.estoque}
+                    onChange={(e) =>
+                      setEditandoItem({ ...editandoItem, estoque: Number.parseInt(e.target.value) || 0 })
+                    }
+                    placeholder="Estoque"
+                    className="h-10"
+                  />
+                </div>
+                <Select
+                  value={editandoItem.categoria_id?.toString()}
+                  onChange={(e) => setEditandoItem({ ...editandoItem, nome: e.target.value })}
+                  onValueChange={(value) => setEditandoItem({ ...editandoItem, categoria_id: Number.parseInt(value) })}
+                >
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Categoria *" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categorias.map((categoria) => (
+                      <SelectItem key={categoria.id} value={categoria.id.toString()}>
+                        {categoria.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Textarea
+                  value={editandoItem.descricao || ""}
+                  onChange={(e) => setEditandoItem({ ...editandoItem, descricao: e.target.value })}
+                  placeholder="Descrição"
+                  rows={2}
+                  className="resize-none"
+                />
+                <Input
+                  value={editandoItem.imagem || ""}
+                  onChange={(e) => setEditandoItem({ ...editandoItem, imagem: e.target.value })}
+                  placeholder="URL da imagem"
+                  className="h-10"
+                />
+              </div>
+              <div className="flex flex-col space-y-2 mt-4">
+                <Button
+                  onClick={editarBebida}
+                  disabled={carregando}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white h-10"
+                >
+                  {carregando ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      {modoTeste ? "🧪 Salvar (Teste)" : "Salvar Alterações"}
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditandoItem(null)}
+                  disabled={carregando}
+                  className="w-full h-10"
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {editandoCategoria && (
+          <Dialog open={!!editandoCategoria} onOpenChange={() => setEditandoCategoria(null)}>
+            <DialogContent className="max-w-[95vw]">
+              <DialogHeader>
+                <DialogTitle className="text-lg text-gray-800 flex items-center">
+                  <Edit className="w-5 h-5 mr-2 text-blue-600" />
+                  Editar: {editandoCategoria.nome}
+                  {modoTeste && <Badge className="ml-2 bg-yellow-500 text-black text-xs">🧪</Badge>}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 mt-4">
+                <Input
+                  value={editandoCategoria.nome}
+                  onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
+                  placeholder="Nome *"
+                  className="h-10"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Select
+                    value={editandoCategoria.icone}
+                    onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
+                    onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, icone: value })}
+                  >
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Ícone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ICONES_CATEGORIAS.map((icone) => (
+                        <SelectItem key={icone.valor} value={icone.valor}>
+                          {icone.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={editandoCategoria.cor}
+                    onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
+                    onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, cor: value })}
+                  >
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Cor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CORES_CATEGORIAS.map((cor) => (
+                        <SelectItem key={cor.valor} value={cor.valor}>
+                          {cor.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex flex-col space-y-2 mt-4">
+                <Button
+                  onClick={editarCategoria}
+                  disabled={carregando}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white h-10"
+                >
+                  {carregando ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      {modoTeste ? "🧪 Salvar (Teste)" : "Salvar Alterações"}
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditandoCategoria(null)}
+                  disabled={carregando}
+                  className="w-full h-10"
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     )
   }
@@ -1415,11 +1943,13 @@ export default function BebidasOnApp() {
             <div className="text-center mb-8">
               <h1 className="text-3xl font-bold text-yellow-400 mb-2">BEBIDAS ON</h1>
               <p className="text-gray-300 text-lg">Comprovante de Venda</p>
+              {modoTeste && <Badge className="mt-2 bg-yellow-500 text-black text-xs">🧪 MODO TESTE</Badge>}
             </div>
+
             {/* Informações da Empresa */}
             <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
               <div>
-                <p className="text-gray-300">Telefone:</p>
+                <p className="text-gray-300">Telefone: </p>
                 <p className="font-semibold">{TELEFONE_DISPLAY}</p>
               </div>
               <div>
@@ -1427,11 +1957,14 @@ export default function BebidasOnApp() {
                 <p className="font-semibold text-xs">46.203.975/8000-00</p>
               </div>
             </div>
+
             <div className="mb-6">
               <p className="text-gray-300 text-sm">Endereço:</p>
               <p className="font-semibold">Rua Amazonas 239 - Paraíso/SP</p>
             </div>
+
             <hr className="border-gray-600 mb-6" />
+
             {/* Informações do Pedido */}
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>
@@ -1443,7 +1976,9 @@ export default function BebidasOnApp() {
                 <p className="font-semibold text-sm">{pedidoAtual.data}</p>
               </div>
             </div>
+
             <hr className="border-gray-600 mb-6" />
+
             {/* Informações de Entrega */}
             <div className="mb-6">
               <p className="text-gray-300 text-sm">Tipo de Entrega:</p>
@@ -1454,10 +1989,13 @@ export default function BebidasOnApp() {
                 <div className="mt-2">
                   <p className="text-gray-300 text-sm">Endereço:</p>
                   <p className="font-semibold text-sm">{pedidoAtual.enderecoEntrega}</p>
+                  {pedidoAtual.localizacao && <p className="text-xs text-blue-300 mt-1">{pedidoAtual.localizacao}</p>}
                 </div>
               )}
             </div>
+
             <hr className="border-gray-600 mb-6" />
+
             {/* Itens da Venda */}
             <div className="mb-6">
               <p className="text-gray-300 text-sm mb-4">Itens da Venda:</p>
@@ -1477,7 +2015,9 @@ export default function BebidasOnApp() {
                 ))}
               </div>
             </div>
+
             <hr className="border-gray-600 mb-6" />
+
             {/* Total */}
             <div className="space-y-2 mb-6">
               <div className="flex justify-between text-sm">
@@ -1500,6 +2040,7 @@ export default function BebidasOnApp() {
                 <span className="text-yellow-400">R$ {pedidoAtual.total.toFixed(2)}</span>
               </div>
             </div>
+
             {/* Forma de Pagamento */}
             <div className="text-center bg-gray-700 p-3 rounded-lg">
               <p className="text-gray-300 text-sm">FORMA DE PAGAMENTO</p>
@@ -1679,7 +2220,17 @@ export default function BebidasOnApp() {
                 {/* Campo de Endereço para Entrega */}
                 {tipoEntrega === "entrega" && (
                   <div className="mt-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
-                    <Label htmlFor="enderecoEntrega">Endereço para Entrega *</Label>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label htmlFor="enderecoEntrega">Endereço para Entrega *</Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => obterLocalizacaoAtual()}
+                        className="text-xs px-2 py-1 h-auto bg-transparent"
+                      >
+                        <MapPin className="w-3 h-3 mr-1" />📍 Capturar Localização
+                      </Button>
+                    </div>
                     <Textarea
                       id="enderecoEntrega"
                       value={enderecoEntrega}
@@ -1688,6 +2239,13 @@ export default function BebidasOnApp() {
                       rows={3}
                       className="mt-2"
                     />
+                    {localizacaoAtual && (
+                      <div className="mt-2 p-2 bg-green-100 rounded text-green-800 text-xs">
+                        ✅ Localização capturada automaticamente
+                        <br />
+                        <span className="text-blue-600">{localizacaoAtual}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1719,6 +2277,61 @@ export default function BebidasOnApp() {
                     {formaPagamento === "pix" && <div className="ml-auto w-4 h-4 bg-green-500 rounded-full"></div>}
                   </div>
                 </div>
+
+                {/* Campo para chave PIX - COMPACTO */}
+                {formaPagamento === "pix" && (
+                  <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                    {/* Chave PIX - Compacta */}
+                    <div className="bg-white rounded-lg border border-green-300 p-3 mb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Smartphone className="w-4 h-4 text-green-600" />
+                          <div>
+                            <p className="text-xs text-gray-600">Chave PIX:</p>
+                            <p className="font-mono text-base font-bold text-gray-800">{TELEFONE_WHATSAPP}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(TELEFONE_WHATSAPP)
+                            addToast({
+                              type: "success",
+                              title: "Chave PIX copiada!",
+                              description: "Cole no seu aplicativo do banco para fazer o pagamento",
+                            })
+                          }}
+                          className="px-3 py-1 bg-green-100 border-green-300 text-green-700 hover:bg-green-200 text-xs"
+                        >
+                          📋 Copiar
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Valor a ser pago - Menor */}
+                    <div className="bg-blue-50 rounded-lg border border-blue-200 p-2 mb-3">
+                      <div className="text-center">
+                        <p className="text-xs text-blue-700">💰 Valor a pagar:</p>
+                        <p className="text-xl font-bold text-blue-800">R$ {totalComEntrega.toFixed(2)}</p>
+                      </div>
+                    </div>
+
+                    {/* Instruções compactas */}
+                    <div className="bg-blue-100 rounded-lg p-2">
+                      <div className="flex items-start space-x-2">
+                        <div className="text-blue-600 mt-0.5 text-sm">💡</div>
+                        <div className="text-blue-800 text-xs">
+                          <p className="font-semibold mb-1">Como pagar:</p>
+                          <p>
+                            1. Copie a chave PIX • 2. Abra seu banco • 3. PIX → Pagar • 4. Cole a chave • 5. Digite o
+                            valor • 6. Confirme
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Cartão */}
                 <div
@@ -1804,7 +2417,7 @@ export default function BebidasOnApp() {
                 Processando...
               </>
             ) : (
-              "🎉 Finalizar Pedido"
+              <>🎉 {modoTeste ? "🧪 Finalizar (Teste)" : "Finalizar Pedido"}</>
             )}
           </Button>
         </div>
@@ -1839,7 +2452,7 @@ export default function BebidasOnApp() {
               <div className="bg-gradient-to-br from-orange-100 to-yellow-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 animate-bounce-custom">
                 <ShoppingCart className="w-10 h-10 text-orange-500" />
               </div>
-              <h2 className="text-xl font-bold text-gray-700 mb-2">Carrinho vazio</h2>
+              <h2 className="text-2xl font-bold text-gray-700 mb-2">Carrinho vazio</h2>
               <p className="text-gray-500 mb-6 text-sm">Que tal adicionar algumas bebidas geladas?</p>
               <Button
                 onClick={() => setTelaAtual("cardapio")}
@@ -1854,7 +2467,7 @@ export default function BebidasOnApp() {
                 {carrinho.map((item, index) => (
                   <Card
                     key={item.bebida.id}
-                    className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift transition-all duration-300 animate-fadeInUp"
+                    className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift transition-all duration-300 hover:shadow-xl animate-fadeInUp"
                     style={{ animationDelay: `${index * 0.1}s` }}
                   >
                     <CardContent className="p-4">
@@ -1961,28 +2574,27 @@ export default function BebidasOnApp() {
   if (telaAtual === "inicio") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-400 via-orange-500 to-yellow-500 flex flex-col overflow-hidden">
-        {/* Elementos flutuantes de fundo */}
+        {/* Elementos flutuantes de fundo - ANIMAÇÕES MELHORADAS */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-10 left-10 w-20 h-20 bg-white/10 rounded-full animate-float"></div>
+          <div className="absolute top-10 left-10 w-20 h-20 bg-white/10 rounded-full animate-float-1"></div>
+          <div className="absolute top-32 right-16 w-16 h-16 bg-white/5 rounded-full animate-float-2"></div>
+          <div className="absolute bottom-32 left-20 w-12 h-12 bg-white/10 rounded-full animate-float-3"></div>
+          <div className="absolute bottom-20 right-32 w-24 h-24 bg-white/5 rounded-full animate-float-4"></div>
+          <div className="absolute top-1/2 left-8 w-8 h-8 bg-white/10 rounded-full animate-float-5"></div>
+          <div className="absolute top-1/3 right-8 w-14 h-14 bg-white/5 rounded-full animate-float-6"></div>
+
+          {/* Elementos extras para mais movimento */}
           <div
-            className="absolute top-32 right-16 w-16 h-16 bg-white/5 rounded-full animate-float"
-            style={{ animationDelay: "1s" }}
+            className="absolute top-1/4 left-1/3 w-6 h-6 bg-yellow-300/20 rounded-full animate-float-1"
+            style={{ animationDelay: "3s" }}
           ></div>
           <div
-            className="absolute bottom-32 left-20 w-12 h-12 bg-white/10 rounded-full animate-float"
-            style={{ animationDelay: "2s" }}
+            className="absolute bottom-1/4 right-1/3 w-10 h-10 bg-orange-300/15 rounded-full animate-float-2"
+            style={{ animationDelay: "3.5s" }}
           ></div>
           <div
-            className="absolute bottom-20 right-32 w-24 h-24 bg-white/5 rounded-full animate-float"
-            style={{ animationDelay: "0.5s" }}
-          ></div>
-          <div
-            className="absolute top-1/2 left-8 w-8 h-8 bg-white/10 rounded-full animate-float"
-            style={{ animationDelay: "1.5s" }}
-          ></div>
-          <div
-            className="absolute top-1/3 right-8 w-14 h-14 bg-white/5 rounded-full animate-float"
-            style={{ animationDelay: "2.5s" }}
+            className="absolute top-3/4 left-1/4 w-18 h-18 bg-white/8 rounded-full animate-float-3"
+            style={{ animationDelay: "4s" }}
           ></div>
         </div>
 
@@ -1991,7 +2603,7 @@ export default function BebidasOnApp() {
             {/* Logo da empresa com animações */}
             <div className="glass-effect rounded-3xl p-8 shadow-2xl border border-white/20 hover-lift animate-fadeInScale">
               <div className="mb-6">
-                <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl border-4 border-white/30 animate-glow">
+                <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl border-4 border-white/30 animate-logo-chamativa">
                   <Image
                     src="/logo-bebidas-on.png"
                     alt="Bebidas ON Logo"
@@ -2007,6 +2619,9 @@ export default function BebidasOnApp() {
                 <p className="text-xl font-bold mb-2">🚚 DELIVERY PREMIUM</p>
               </div>
               <p className="text-white/90 text-lg font-medium animate-slideInUp">Buzinou, chegou! 📱</p>
+              {modoTeste && (
+                <Badge className="mt-3 bg-yellow-500 text-black text-sm animate-bounce">🧪 MODO TESTE ATIVO</Badge>
+              )}
             </div>
 
             <div className="space-y-4 animate-fadeInUp" style={{ animationDelay: "0.3s" }}>
@@ -2059,7 +2674,7 @@ export default function BebidasOnApp() {
           </Button>
           <div className="flex items-center space-x-3">
             <div
-              className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/30 cursor-pointer hover-lift animate-glow"
+              className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/30 cursor-pointer hover-lift animate-logo-suave"
               onDoubleClick={acessoAdmin}
             >
               <Image
@@ -2070,7 +2685,10 @@ export default function BebidasOnApp() {
                 className="w-full h-full object-cover animate-float"
               />
             </div>
-            <h1 className="text-2xl font-bold">Cardápio</h1>
+            <div className="text-center">
+              <h1 className="text-2xl font-bold">Cardápio</h1>
+              {modoTeste && <Badge className="bg-yellow-500 text-black text-xs">🧪 TESTE</Badge>}
+            </div>
           </div>
           <Button
             variant="ghost"
