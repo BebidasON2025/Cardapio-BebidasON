@@ -409,3 +409,43 @@
 .stagger-3 {
   animation-delay: 0.3s;
 }
+
+/* 🏍️ ANIMAÇÃO DA MOTO PARADA COM MOVIMENTO */
+@keyframes motoParadaMovimento {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg) scale(1);
+  }
+  25% {
+    transform: translateX(-2px) rotate(-1deg) scale(1.02);
+  }
+  50% {
+    transform: translateX(0) rotate(0deg) scale(1.05);
+  }
+  75% {
+    transform: translateX(2px) rotate(1deg) scale(1.02);
+  }
+}
+
+@keyframes motoVibrar {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+/* Classe para aplicar na moto */
+.animate-moto-parada {
+  animation: motoParadaMovimento 1.5s ease-in-out infinite, motoVibrar 0.3s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* Versão mais intensa para quando quiser mais movimento */
+.animate-moto-acelerando {
+  animation: motoParadaMovimento 0.8s ease-in-out infinite, motoVibrar 0.2s ease-in-out infinite;
+  display: inline-block;
+  filter: drop-shadow(0 0 8px rgba(255, 165, 0, 0.6));
+}
