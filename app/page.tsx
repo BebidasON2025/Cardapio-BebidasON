@@ -47,6 +47,9 @@ const supabaseKey =
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 // 📱 TELEFONE
+const CHAVE_PIX = "1799631-1727"
+const NOME_PIX = "Nattieli De Carvalho"
+const BANCO_PIX = "Banco Santander (Brasil) S.A."
 const TELEFONE_WHATSAPP = "17996311727"
 const TELEFONE_DISPLAY = "(17) 99631-1727"
 
@@ -91,6 +94,7 @@ interface Pedido {
 }
 
 const TAXA_ENTREGA = 1.0
+const PEDIDO_MINIMO_ENTREGA = 20.0
 
 // 🎨 CORES PARA CATEGORIAS
 const CORES_CATEGORIAS = [
@@ -174,7 +178,6 @@ function BebidasOnAppContent() {
   const [capturandoImagem, setCapturandoImagem] = useState(false)
   const [carregando, setCarregando] = useState(false)
   const [abaAdmin, setAbaAdmin] = useState<"produtos" | "categorias" | "pedidos">("categorias")
-  const [contadorVendas, setContadorVendas] = useState(1) // Começar em 1 para gerar 0001
   const [tipoEntrega, setTipoEntrega] = useState<"entrega" | "retirada">("retirada")
   const [enderecoEntrega, setEnderecoEntrega] = useState("")
   const [localizacaoAtual, setLocalizacaoAtual] = useState("")
@@ -205,11 +208,6 @@ function BebidasOnAppContent() {
   // 💾 CARREGAR DADOS
   useEffect(() => {
     carregarDados()
-    // Carregar contador do localStorage
-    const contadorSalvo = localStorage.getItem("contadorVendas")
-    if (contadorSalvo) {
-      setContadorVendas(Number.parseInt(contadorSalvo))
-    }
   }, [])
 
   const carregarDados = async () => {
@@ -318,13 +316,66 @@ function BebidasOnAppContent() {
     console.log("🧪 Dados de teste carregados")
   }
 
-  // 🆔 GERAR ID ÚNICO PARA PEDIDOS - VERSÃO SEQUENCIAL
-  const gerarIdUnico = () => {
-    const numeroFormatado = contadorVendas.toString().padStart(4, "0")
-    const novoContador = contadorVendas + 1
-    setContadorVendas(novoContador)
-    localStorage.setItem("contadorVendas", novoContador.toString())
-    return `VN${numeroFormatado}` // ID simples: VN0001, VN0002, etc.
+  // 🆔 GERAR ID ÚNICO SEQUENCIAL - VERSÃO CORRIGIDA PARA EVITAR DUPLICATAS
+  const gerarIdUnico = async () => {
+    try {
+      if (modoTeste) {
+        // 🧪 MODO TESTE - Usar timestamp + random para evitar conflitos
+        const timestamp = Date.now()
+        const random = Math.floor(Math.random() * 10000)
+        return `T${timestamp.toString().slice(-8)}${random.toString().padStart(4, "0")}`
+      }
+
+      // 🔴 MODO PRODUÇÃO - Usar timestamp + random mais robusto
+      const agora = new Date()
+      const timestamp = agora.getTime()
+      const random = Math.floor(Math.random() * 100000)
+
+      // Formato: YYYYMMDDHHMMSS + 5 dígitos random
+      const ano = agora.getFullYear().toString()
+      const mes = (agora.getMonth() + 1).toString().padStart(2, "0")
+      const dia = agora.getDate().toString().padStart(2, "0")
+      const hora = agora.getHours().toString().padStart(2, "0")
+      const minuto = agora.getMinutes().toString().padStart(2, "0")
+      const segundo = agora.getSeconds().toString().padStart(2, "0")
+
+      const idBase = `${ano}${mes}${dia}${hora}${minuto}${segundo}${random.toString().padStart(5, "0")}`
+
+      // Verificar se este ID já existe (apenas uma verificação simples)
+      const { data: existeId, error: erroVerificacao } = await supabase
+        .from("pedidos")
+        .select("id")
+        .eq("id", idBase)
+        .limit(1)
+
+      if (erroVerificacao) {
+        console.warn("⚠️ Erro ao verificar ID, usando timestamp puro:", erroVerificacao)
+        // Fallback: usar apenas timestamp + random maior
+        const timestampFallback = Date.now()
+        const randomFallback = Math.floor(Math.random() * 1000000)
+        return `${timestampFallback}${randomFallback.toString().padStart(6, "0")}`
+      }
+
+      // Se o ID não existe, podemos usá-lo
+      if (!existeId || existeId.length === 0) {
+        return idBase
+      }
+
+      // Se existe, adicionar mais aleatoriedade
+      const extraRandom = Math.floor(Math.random() * 1000000)
+      const idFinal = `${idBase}${extraRandom.toString().padStart(6, "0")}`
+
+      console.log("✅ ID único gerado:", idFinal)
+      return idFinal
+    } catch (error) {
+      console.error("❌ Erro crítico ao gerar ID único:", error)
+      // Fallback final: timestamp + random muito grande
+      const timestamp = Date.now()
+      const random = Math.floor(Math.random() * 10000000)
+      const idEmergencia = `E${timestamp}${random.toString().padStart(7, "0")}`
+      console.log("🚨 Usando ID de emergência:", idEmergencia)
+      return idEmergencia
+    }
   }
 
   // 📍 OBTER LOCALIZAÇÃO ATUAL COM MAPA
@@ -507,14 +558,7 @@ function BebidasOnAppContent() {
 
     const nomeClientePadrao = "Cliente"
 
-    if (tipoEntrega === "entrega" && !enderecoEntrega.trim()) {
-      addToast({
-        type: "error",
-        title: "Endereço de entrega ausente!",
-        description: "Por favor, informe o endereço para entrega.",
-      })
-      return
-    }
+    // Endereço de entrega agora é opcional
 
     const totalComTaxa = totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
     if (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComTaxa)) {
@@ -529,9 +573,9 @@ function BebidasOnAppContent() {
     try {
       setCarregando(true)
 
-      // Obter localização se for entrega
+      // Obter localização APENAS se for entrega E tiver endereço preenchido
       let localizacaoFinal = ""
-      if (tipoEntrega === "entrega") {
+      if (tipoEntrega === "entrega" && enderecoEntrega.trim()) {
         try {
           localizacaoFinal = await obterLocalizacaoAtual()
         } catch (error) {
@@ -539,8 +583,9 @@ function BebidasOnAppContent() {
           localizacaoFinal = ""
         }
       }
-      // Gerar ID único sequencial
-      const idUnico = gerarIdUnico()
+
+      // Gerar ID único sequencial - VERSÃO CORRIGIDA
+      const idUnico = await gerarIdUnico()
 
       const novoPedido: Pedido = {
         id: idUnico,
@@ -586,12 +631,15 @@ function BebidasOnAppContent() {
           dadosParaInserir.localizacao = novoPedido.localizacao
         }
 
+        // Remove the retry insertion logic and replace with simple insertion
         const { error } = await supabase.from("pedidos").insert([dadosParaInserir])
 
         if (error) {
           console.error("❌ Erro ao inserir pedido:", error)
           throw new Error(`Erro ao salvar pedido: ${error.message}`)
         }
+
+        console.log("✅ Pedido inserido com sucesso:", novoPedido.id)
 
         // Atualizar estoque
         console.log("📦 Atualizando estoque...")
@@ -620,7 +668,13 @@ function BebidasOnAppContent() {
 
       setPedidos((prev) => [novoPedido, ...prev])
       setPedidoAtual(novoPedido)
-      setTelaAtual("comprovante")
+
+      // 🚀 COMPARTILHAMENTO AUTOMÁTICO NO WHATSAPP
+      setTimeout(async () => {
+        await compartilharComprovanteAutomatico(novoPedido)
+        // Ir para tela de comprovante após compartilhar
+        setTelaAtual("comprovante")
+      }, 1000) // Delay maior para garantir que o WhatsApp abra primeiro
 
       console.log("✅ Pedido finalizado com sucesso:", novoPedido.id)
     } catch (error) {
@@ -720,6 +774,98 @@ function BebidasOnAppContent() {
         type: "error",
         title: "Erro ao compartilhar",
         description: "Ocorreu um erro ao tentar compartilhar o comprovante.",
+      })
+    }
+  }
+
+  const compartilharComprovanteAutomatico = async (pedido: Pedido) => {
+    try {
+      let mensagem = `🍻 *PEDIDO BEBIDAS ON* 🍻\n`
+      mensagem += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      mensagem += `📋 *Pedido:* #${pedido.id}\n`
+      mensagem += `📅 *Data:* ${pedido.data}\n`
+
+      if (modoTeste) {
+        mensagem += `🧪 *MODO TESTE ATIVO*\n`
+      }
+
+      if (pedido.tipoEntrega === "entrega") {
+        mensagem += `🚚 *Tipo:* ENTREGA\n`
+        mensagem += `📍 *Endereço:* ${pedido.enderecoEntrega}\n`
+        if (pedido.localizacao) {
+          mensagem += `\n${pedido.localizacao}\n`
+        }
+      } else {
+        mensagem += `🏪 *Tipo:* RETIRADA NO LOCAL\n`
+        mensagem += `📍 *Local:* Rua Amazonas 239 - Paraíso/SP\n`
+      }
+
+      mensagem += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`
+      mensagem += `🛒 *ITENS DO PEDIDO:*\n`
+
+      pedido.itens.forEach((item, index) => {
+        mensagem += `${index + 1}. ${item.quantidade}x ${item.bebida.nome}\n`
+        mensagem += `   💰 R$ ${item.bebida.preco.toFixed(2)} cada\n`
+        mensagem += `   📊 Subtotal: R$ ${(item.bebida.preco * item.quantidade).toFixed(2)}\n\n`
+      })
+
+      mensagem += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      mensagem += `💵 *RESUMO FINANCEIRO:*\n`
+      mensagem += `🛍️ Subtotal dos itens: R$ ${subtotalItens.toFixed(2)}\n`
+
+      if (pedido.tipoEntrega === "entrega") {
+        mensagem += `🚚 Taxa de entrega: R$ ${TAXA_ENTREGA.toFixed(2)}\n`
+      } else {
+        mensagem += `🏪 Retirada no local: R$ 0,00\n`
+      }
+
+      mensagem += `💰 *TOTAL FINAL: R$ ${pedido.total.toFixed(2)}*\n\n`
+      mensagem += `💳 *PAGAMENTO:* ${pedido.formaPagamento.toUpperCase()}\n`
+
+      if (pedido.formaPagamento === "dinheiro") {
+        mensagem += `💵 Valor pago: R$ ${pedido.valorPago?.toFixed(2)}\n`
+        if (pedido.troco && pedido.troco > 0) {
+          mensagem += `🔄 Troco: R$ ${pedido.troco.toFixed(2)}\n`
+        } else {
+          mensagem += `✅ Não precisa de troco\n`
+        }
+      }
+
+      mensagem += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+      mensagem += `📞 *BEBIDAS ON* - ${TELEFONE_DISPLAY}\n`
+      mensagem += `🏠 Rua Amazonas 239 - Paraíso/SP\n`
+
+      if (pedido.tipoEntrega === "entrega") {
+        mensagem += `⏰ Aguardando confirmação para entrega!\n`
+        mensagem += `🚚 Delivery rápido e gelado! 🧊`
+      } else {
+        mensagem += `⏰ Aguardando confirmação para retirada!\n`
+        mensagem += `🏪 Retire no balcão! 🧊`
+      }
+
+      const whatsappUrl = `https://wa.me/${TELEFONE_WHATSAPP}?text=${encodeURIComponent(mensagem)}`
+      window.open(whatsappUrl, "_blank")
+
+      addToast({
+        type: "success",
+        title: "🚀 Pedido enviado automaticamente!",
+        description: "WhatsApp aberto com seu comprovante pronto",
+      })
+
+      // Limpar carrinho após envio automático
+      setTimeout(() => {
+        setCarrinho([])
+        setEnderecoEntrega("")
+        setValorPago("")
+        setFormaPagamento("pix")
+        setTipoEntrega("retirada")
+      }, 2000)
+    } catch (error) {
+      console.error("Erro no compartilhamento automático:", error)
+      addToast({
+        type: "warning",
+        title: "Erro no envio automático",
+        description: "Use o botão 'Enviar para WhatsApp' manualmente",
       })
     }
   }
@@ -1458,7 +1604,6 @@ function BebidasOnAppContent() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Categoria *</label>
                       <Select
                         value={novoItem.categoria_id}
-                        onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
                         onValueChange={(value) => setNovoItem({ ...novoItem, categoria_id: value })}
                       >
                         <SelectTrigger className="w-full">
@@ -1770,7 +1915,6 @@ function BebidasOnAppContent() {
                 </div>
                 <Select
                   value={editandoItem.categoria_id?.toString()}
-                  onChange={(e) => setEditandoItem({ ...editandoItem, nome: e.target.value })}
                   onValueChange={(value) => setEditandoItem({ ...editandoItem, categoria_id: Number.parseInt(value) })}
                 >
                   <SelectTrigger className="h-10">
@@ -1791,12 +1935,45 @@ function BebidasOnAppContent() {
                   rows={2}
                   className="resize-none"
                 />
-                <Input
-                  value={editandoItem.imagem || ""}
-                  onChange={(e) => setEditandoItem({ ...editandoItem, imagem: e.target.value })}
-                  placeholder="URL da imagem"
-                  className="h-10"
-                />
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Imagem do Produto</label>
+                  <div className="space-y-2">
+                    <div className="flex space-x-2">
+                      <Input
+                        value={editandoItem.imagem || ""}
+                        onChange={(e) => setEditandoItem({ ...editandoItem, imagem: e.target.value })}
+                        placeholder="URL da imagem"
+                        className="flex-1 h-10"
+                      />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                        id="upload-image-edit"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="px-3 bg-transparent whitespace-nowrap"
+                        onClick={() => document.getElementById("upload-image-edit")?.click()}
+                      >
+                        📷 Escolher Foto
+                      </Button>
+                    </div>
+                    {editandoItem.imagem && (
+                      <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-100 border">
+                        <Image
+                          src={editandoItem.imagem || "/placeholder.svg"}
+                          alt="Preview"
+                          width={80}
+                          height={80}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="flex flex-col space-y-2 mt-4">
                 <Button
@@ -1849,7 +2026,6 @@ function BebidasOnAppContent() {
                 <div className="grid grid-cols-2 gap-2">
                   <Select
                     value={editandoCategoria.icone}
-                    onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
                     onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, icone: value })}
                   >
                     <SelectTrigger className="h-10">
@@ -1865,7 +2041,6 @@ function BebidasOnAppContent() {
                   </Select>
                   <Select
                     value={editandoCategoria.cor}
-                    onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
                     onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, cor: value })}
                   >
                     <SelectTrigger className="h-10">
@@ -2117,7 +2292,14 @@ function BebidasOnAppContent() {
 
   // TELA DE PAGAMENTO
   if (telaAtual === "pagamento") {
-    const totalComEntrega = totalCarrinho + (carrinho.length > 0 && tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
+    const calcularTaxaEntrega = () => {
+      if (tipoEntrega === "retirada") return 0
+      return TAXA_ENTREGA
+    }
+
+    const podeEntrega = totalCarrinho >= PEDIDO_MINIMO_ENTREGA
+
+    const totalComEntrega = totalCarrinho + calcularTaxaEntrega()
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 animate-fadeInUp">
@@ -2198,39 +2380,53 @@ function BebidasOnAppContent() {
                   </div>
                 </div>
 
-                {/* Entrega */}
+                {/* Entrega - com validação de pedido mínimo */}
                 <div
                   className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-300 hover-lift ${
-                    tipoEntrega === "entrega"
-                      ? "border-orange-500 bg-orange-50 scale-105"
-                      : "border-gray-200 hover:border-orange-300"
+                    !podeEntrega
+                      ? "border-gray-300 bg-gray-100 cursor-not-allowed opacity-60"
+                      : tipoEntrega === "entrega"
+                        ? "border-orange-500 bg-orange-50 scale-105"
+                        : "border-gray-200 hover:border-orange-300"
                   }`}
-                  onClick={() => setTipoEntrega("entrega")}
+                  onClick={() => podeEntrega && setTipoEntrega("entrega")}
                 >
                   <div className="flex items-center space-x-3">
                     <div className="w-6 h-6 text-orange-600">🚚</div>
                     <div>
-                      <p className="font-semibold">Entrega</p>
-                      <p className="text-sm text-gray-600">Taxa: R$ {TAXA_ENTREGA.toFixed(2)}</p>
+                      <p className={`font-semibold ${!podeEntrega ? "text-gray-500" : ""}`}>
+                        Entrega {!podeEntrega ? "(Indisponível)" : ""}
+                      </p>
+                      {!podeEntrega ? (
+                        <div className="text-sm text-gray-500">
+                          <p className="font-medium text-red-600">Entrega disponível a partir de R$ 20,00</p>
+                          <p>Seu pedido: R$ {totalCarrinho.toFixed(2)}</p>
+                          <p className="font-semibold text-orange-600">
+                            Faltam: R$ {(PEDIDO_MINIMO_ENTREGA - totalCarrinho).toFixed(2)}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-600">Taxa: R$ {TAXA_ENTREGA.toFixed(2)}</p>
+                      )}
                     </div>
-                    {tipoEntrega === "entrega" && <div className="ml-auto w-4 h-4 bg-orange-500 rounded-full"></div>}
+                    {tipoEntrega === "entrega" && podeEntrega && (
+                      <div className="ml-auto w-4 h-4 bg-orange-500 rounded-full"></div>
+                    )}
                   </div>
                 </div>
 
                 {/* Campo de Endereço para Entrega */}
                 {tipoEntrega === "entrega" && (
                   <div className="mt-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <Label htmlFor="enderecoEntrega">Endereço para Entrega *</Label>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => obterLocalizacaoAtual()}
-                        className="text-xs px-2 py-1 h-auto bg-transparent"
-                      >
-                        <MapPin className="w-3 h-3 mr-1" />📍 Capturar Localização
-                      </Button>
-                    </div>
+                    <Label htmlFor="enderecoEntrega">Endereço para Entrega (opcional)</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => obterLocalizacaoAtual()}
+                      className="text-xs px-2 py-1 h-auto bg-transparent"
+                    >
+                      <MapPin className="w-3 h-3 mr-1" />📍 Capturar Localização
+                    </Button>
                     <Textarea
                       id="enderecoEntrega"
                       value={enderecoEntrega}
@@ -2281,35 +2477,50 @@ function BebidasOnAppContent() {
                 {/* Campo para chave PIX - COMPACTO */}
                 {formaPagamento === "pix" && (
                   <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
-                    {/* Chave PIX - Compacta */}
+                    {/* Informações do PIX - Compactas */}
                     <div className="bg-white rounded-lg border border-green-300 p-3 mb-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
+                      <div className="text-center mb-3">
+                        <div className="flex items-center justify-center space-x-2 mb-2">
                           <Smartphone className="w-4 h-4 text-green-600" />
+                          <span className="text-sm font-semibold text-green-800">Dados para PIX</span>
+                        </div>
+
+                        <div className="space-y-2">
                           <div>
                             <p className="text-xs text-gray-600">Chave PIX:</p>
-                            <p className="font-mono text-base font-bold text-gray-800">{TELEFONE_WHATSAPP}</p>
+                            <p className="font-mono text-base font-bold text-gray-800">{CHAVE_PIX}</p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-gray-600">Nome:</p>
+                            <p className="text-sm font-semibold text-gray-800">{NOME_PIX}</p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-gray-600">Banco:</p>
+                            <p className="text-sm font-medium text-gray-700">{BANCO_PIX}</p>
                           </div>
                         </div>
+
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            navigator.clipboard.writeText(TELEFONE_WHATSAPP)
+                            navigator.clipboard.writeText(CHAVE_PIX)
                             addToast({
                               type: "success",
                               title: "Chave PIX copiada!",
                               description: "Cole no seu aplicativo do banco para fazer o pagamento",
                             })
                           }}
-                          className="px-3 py-1 bg-green-100 border-green-300 text-green-700 hover:bg-green-200 text-xs"
+                          className="mt-3 px-4 py-2 bg-green-100 border-green-300 text-green-700 hover:bg-green-200 text-sm w-full"
                         >
-                          📋 Copiar
+                          📋 Copiar Chave PIX
                         </Button>
                       </div>
                     </div>
 
-                    {/* Valor a ser pago - Menor */}
+                    {/* Valor a ser pago */}
                     <div className="bg-blue-50 rounded-lg border border-blue-200 p-2 mb-3">
                       <div className="text-center">
                         <p className="text-xs text-blue-700">💰 Valor a pagar:</p>
@@ -2406,7 +2617,6 @@ function BebidasOnAppContent() {
             onClick={finalizarPedido}
             disabled={
               carregando ||
-              (tipoEntrega === "entrega" && !enderecoEntrega.trim()) ||
               (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComEntrega))
             }
             className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-xl py-6 rounded-xl font-bold shadow-lg hover-lift"
@@ -2430,6 +2640,12 @@ function BebidasOnAppContent() {
 
   // TELA DO CARRINHO
   if (telaAtual === "carrinho") {
+    const calcularTaxaEntrega = () => {
+      if (tipoEntrega === "retirada") return 0
+      if (totalCarrinho >= PEDIDO_MINIMO_ENTREGA) return 0
+      return TAXA_ENTREGA
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 animate-fadeInUp flex flex-col">
         <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-3 text-white shadow-lg">
@@ -2544,9 +2760,12 @@ function BebidasOnAppContent() {
                     <h3 className="text-xl font-bold text-gray-800 mb-2 animate-bounce">💰 Total do Pedido</h3>
                     <div className="space-y-1 mb-2 animate-fadeInUp">
                       <div className="text-base text-gray-600">Subtotal: R$ {subtotalItens.toFixed(2)}</div>
+                      <div className="text-base text-gray-600">
+                        Taxa de entrega: R$ {calcularTaxaEntrega().toFixed(2)}
+                      </div>
                     </div>
                     <div className="text-3xl font-bold text-green-600 mb-2 animate-pulse-custom">
-                      R$ {totalCarrinho.toFixed(2)}
+                      R$ {(totalCarrinho + calcularTaxaEntrega()).toFixed(2)}
                     </div>
                     <p className="text-gray-600 text-sm">
                       {totalItens} {totalItens === 1 ? "item" : "itens"} selecionados
@@ -2605,7 +2824,7 @@ function BebidasOnAppContent() {
               <div className="mb-6">
                 <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl border-4 border-white/30 animate-logo-chamativa">
                   <Image
-                    src="/logo-bebidas-on.png"
+                    src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-MAf9kkdTHQNURZA6HEvE69rfyuTkMS.png"
                     alt="Bebidas ON Logo"
                     width={200}
                     height={200}
@@ -2624,6 +2843,7 @@ function BebidasOnAppContent() {
               )}
             </div>
 
+            {/* Substituir a seção atual dos cards de benefícios e informação de entrega por: */}
             <div className="space-y-4 animate-fadeInUp" style={{ animationDelay: "0.3s" }}>
               <Button
                 onClick={() => setTelaAtual("cardapio")}
@@ -2648,6 +2868,25 @@ function BebidasOnAppContent() {
                     💳
                   </div>
                   <p className="text-white/80 text-xs font-medium">Pix, Cartão ou Dinheiro</p>
+                </div>
+              </div>
+
+              {/* Card compacto de pedido mínimo */}
+              <div
+                className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20 hover:bg-white/20 transition-all duration-300 animate-fadeInUp"
+                style={{ animationDelay: "0.5s" }}
+              >
+                <div className="text-center">
+                  <div className="flex items-center justify-center space-x-2 mb-2">
+                    <div className="text-2xl animate-moto-parada">🏍️</div>
+                    <h4 className="text-lg font-bold text-white">Pedido Mínimo</h4>
+                  </div>
+                  <p className="text-white/90 text-sm font-semibold">
+                    Entrega disponível para pedidos <span className="text-yellow-300 font-bold">acima de R$ 20,00</span>
+                  </p>
+                  <p className="text-white/80 text-xs mt-1">
+                    Taxa: R$ {TAXA_ENTREGA.toFixed(2)} • Retirada sempre gratuita
+                  </p>
                 </div>
               </div>
             </div>
@@ -2678,7 +2917,7 @@ function BebidasOnAppContent() {
               onDoubleClick={acessoAdmin}
             >
               <Image
-                src="/logo-bebidas-on.png"
+                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-MAf9kkdTHQNURZA6HEvE69rfyuTkMS.png"
                 alt="Logo"
                 width={40}
                 height={40}
