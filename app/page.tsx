@@ -182,8 +182,9 @@ function BebidasOnAppContent() {
   const [enderecoEntrega, setEnderecoEntrega] = useState("")
   const [localizacaoAtual, setLocalizacaoAtual] = useState("")
   const [quantidadesSelecionadas, setQuantidadesSelecionadas] = useState<{ [key: number]: number }>({})
-  const [modoTeste, setModoTeste] = useState(false) // 🧪 MODO TESTE DESATIVADO POR PADRÃO
+  const [modoTeste, setModoTeste] = useState(false) // 🔴 MODO PRODUÇÃO POR PADRÃO
   const [buscaProdutos, setBuscaProdutos] = useState("")
+  const [carregandoDados, setCarregandoDados] = useState(true) // Estado para controlar loading inicial
 
   const [novoItem, setNovoItem] = useState({
     nome: "",
@@ -205,44 +206,67 @@ function BebidasOnAppContent() {
 
   const comprovanteRef = useRef<HTMLDivElement>(null)
 
-  // 💾 CARREGAR DADOS
+  // 💾 CARREGAR DADOS - OTIMIZADO PARA CARREGAMENTO RÁPIDO
   useEffect(() => {
     carregarDados()
   }, [])
 
   const carregarDados = async () => {
     try {
+      setCarregandoDados(true)
+
       if (modoTeste) {
-        // 🧪 MODO TESTE - Dados fictícios
+        // 🧪 MODO TESTE - Carregamento instantâneo
+        console.log("🧪 Carregando dados de teste...")
         carregarDadosTeste()
+        setCarregandoDados(false)
       } else {
-        // 🔴 MODO PRODUÇÃO - Dados reais do Supabase
-        await Promise.all([carregarCategorias(), carregarBebidas()])
+        // 🔴 MODO PRODUÇÃO - Tentar carregar do Supabase sem timeout
+        console.log("🔄 Carregando dados do Supabase...")
+
+        // Timeout instantâneo (ou seja, não há timeout)
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000));
+
+        try {
+          await Promise.race([Promise.all([carregarCategorias(), carregarBebidas()]), timeoutPromise])
+          setCarregandoDados(false)
+          console.log("✅ Dados carregados do Supabase com sucesso!")
+        } catch (error) {
+          console.warn("⚠️ Erro ao carregar do Supabase:", error)
+          addToast({
+            type: "error",
+            title: "❌ Erro de conexão",
+            description: "Não foi possível carregar o cardápio. Verifique sua conexão.",
+          })
+          setCarregandoDados(false)
+          // Não ativar modo teste automaticamente, deixar o usuário decidir
+        }
       }
     } catch (error) {
-      console.error("❌ Erro ao carregar dados, ativando modo teste:", error)
-      // Se houver erro, ativar modo teste automaticamente
-      setModoTeste(true)
-      carregarDadosTeste()
+      console.error("❌ Erro crítico ao carregar dados:", error)
       addToast({
-        type: "warning",
-        title: "⚠️ Erro de conexão detectado.",
-        description: "Modo teste ativado automaticamente.",
+        type: "error",
+        title: "❌ Erro crítico",
+        description: "Falha ao inicializar o sistema.",
       })
+      setCarregandoDados(false)
     }
   }
 
-  // 🧪 DADOS DE TESTE
+  // 🧪 DADOS DE TESTE - MAIS PRODUTOS PARA DEMONSTRAÇÃO
   const carregarDadosTeste = () => {
     const categoriasTeste: Categoria[] = [
-      { id: 1, nome: "Cerveja", icone: "beer", cor: "amber", ativo: true },
-      { id: 2, nome: "Refrigerante", icone: "cup-soda", cor: "blue", ativo: true },
-      { id: 3, nome: "Água", icone: "droplets", cor: "blue", ativo: true },
-      { id: 4, nome: "Energético", icone: "zap", cor: "green", ativo: true },
-      { id: 5, nome: "Vinho", icone: "wine", cor: "purple", ativo: true },
+      { id: 1, nome: "Cervejas", icone: "beer", cor: "amber", ativo: true },
+      { id: 2, nome: "Refrigerantes", icone: "cup-soda", cor: "blue", ativo: true },
+      { id: 3, nome: "Energéticos", icone: "zap", cor: "green", ativo: true },
+      { id: 4, nome: "Ices", icone: "sparkles", cor: "pink", ativo: true },
+      { id: 5, nome: "Palheiros", icone: "package", cor: "red", ativo: true },
+      { id: 6, nome: "Salgadinhos", icone: "package", cor: "purple", ativo: true },
+      { id: 7, nome: "Sucos", icone: "droplets", cor: "green", ativo: true },
     ]
 
     const bebidasTeste: Bebida[] = [
+      // Cervejas
       {
         id: 1,
         nome: "Cerveja Skol Lata 350ml",
@@ -256,6 +280,30 @@ function BebidasOnAppContent() {
       },
       {
         id: 2,
+        nome: "Heineken Long Neck 330ml",
+        descricao: "Cerveja premium importada",
+        preco: 7.5,
+        categoria_id: 1,
+        categoria: categoriasTeste[0],
+        imagem: "/placeholder.svg?height=200&width=300&text=Heineken",
+        estoque: 12,
+        ativo: true,
+      },
+      {
+        id: 3,
+        nome: "Brahma Duplo Malte 350ml",
+        descricao: "Cerveja encorpada e saborosa",
+        preco: 5.2,
+        categoria_id: 1,
+        categoria: categoriasTeste[0],
+        imagem: "/placeholder.svg?height=200&width=300&text=Brahma",
+        estoque: 18,
+        ativo: true,
+      },
+
+      // Refrigerantes
+      {
+        id: 4,
         nome: "Coca-Cola 2L",
         descricao: "Refrigerante de cola tradicional",
         preco: 8.9,
@@ -266,54 +314,84 @@ function BebidasOnAppContent() {
         ativo: true,
       },
       {
-        id: 3,
-        nome: "Água Crystal 500ml",
-        descricao: "Água mineral natural",
-        preco: 2.5,
-        categoria_id: 3,
-        categoria: categoriasTeste[2],
-        imagem: "/placeholder.svg?height=200&width=300&text=Água+Crystal",
-        estoque: 30,
+        id: 5,
+        nome: "Guaraná Antarctica 2L",
+        descricao: "Refrigerante de guaraná brasileiro",
+        preco: 7.5,
+        categoria_id: 2,
+        categoria: categoriasTeste[1],
+        imagem: "/placeholder.svg?height=200&width=300&text=Guarana",
+        estoque: 20,
         ativo: true,
       },
+
+      // Energéticos
       {
-        id: 4,
+        id: 6,
         nome: "Red Bull 250ml",
         descricao: "Energético que te dá asas",
         preco: 12.9,
-        categoria_id: 4,
-        categoria: categoriasTeste[3],
+        categoria_id: 3,
+        categoria: categoriasTeste[2],
         imagem: "/placeholder.svg?height=200&width=300&text=Red+Bull",
         estoque: 8,
         ativo: true,
       },
       {
-        id: 5,
-        nome: "Heineken Long Neck",
-        descricao: "Cerveja premium importada",
-        preco: 7.5,
-        categoria_id: 1,
-        categoria: categoriasTeste[0],
-        imagem: "/placeholder.svg?height=200&width=300&text=Heineken",
-        estoque: 12,
+        id: 7,
+        nome: "Monster Energy 473ml",
+        descricao: "Energético com sabor intenso",
+        preco: 15.9,
+        categoria_id: 3,
+        categoria: categoriasTeste[2],
+        imagem: "/placeholder.svg?height=200&width=300&text=Monster",
+        estoque: 6,
         ativo: true,
       },
+
+      // Ices
       {
-        id: 6,
-        nome: "Vinho Tinto Seco",
-        descricao: "Vinho nacional de qualidade",
-        preco: 25.9,
-        categoria_id: 5,
-        categoria: categoriasTeste[4],
-        imagem: "/placeholder.svg?height=200&width=300&text=Vinho+Tinto",
-        estoque: 5,
+        id: 8,
+        nome: "Smirnoff Ice 275ml",
+        descricao: "Bebida refrescante com vodka",
+        preco: 8.5,
+        categoria_id: 4,
+        categoria: categoriasTeste[3],
+        imagem: "/placeholder.svg?height=200&width=300&text=Smirnoff+Ice",
+        estoque: 10,
+        ativo: true,
+      },
+
+      // Produto com nome muito longo para testar layout
+      {
+        id: 9,
+        nome: "LICOR BALLENA CHOCOLATE E CARAMELO 750 ML",
+        descricao: "Licor premium sabor chocolate e caramelo",
+        preco: 160.0,
+        categoria_id: 4,
+        categoria: categoriasTeste[3],
+        imagem: "/placeholder.svg?height=200&width=300&text=Licor+Ballena",
+        estoque: 3,
+        ativo: true,
+      },
+
+      // Sucos
+      {
+        id: 10,
+        nome: "Suco Del Valle Laranja 1L",
+        descricao: "Suco natural de laranja",
+        preco: 6.5,
+        categoria_id: 7,
+        categoria: categoriasTeste[6],
+        imagem: "/placeholder.svg?height=200&width=300&text=Del+Valle",
+        estoque: 14,
         ativo: true,
       },
     ]
 
     setCategorias(categoriasTeste)
     setBebidas(bebidasTeste)
-    console.log("🧪 Dados de teste carregados")
+    console.log("✅ Dados de teste carregados:", bebidasTeste.length, "bebidas")
   }
 
   // 🆔 GERAR ID ÚNICO SEQUENCIAL - VERSÃO CORRIGIDA PARA EVITAR DUPLICATAS
@@ -511,6 +589,12 @@ function BebidasOnAppContent() {
         }
       }
       return [...prev, { bebida, quantidade }]
+    })
+
+    addToast({
+      type: "success",
+      title: "Adicionado ao carrinho!",
+      description: `${quantidade}x ${bebida.nome}`,
     })
   }
 
@@ -2638,7 +2722,7 @@ function BebidasOnAppContent() {
     )
   }
 
-  // TELA DO CARRINHO
+  // TELA DO CARRINHO - LAYOUT CORRIGIDO PARA NOMES LONGOS
   if (telaAtual === "carrinho") {
     const calcularTaxaEntrega = () => {
       if (tipoEntrega === "retirada") return 0
@@ -2687,22 +2771,27 @@ function BebidasOnAppContent() {
                     style={{ animationDelay: `${index * 0.1}s` }}
                   >
                     <CardContent className="p-4">
-                      {/* Layout Mobile Otimizado */}
+                      {/* Layout Mobile Otimizado - CORRIGIDO PARA NOMES LONGOS */}
                       <div className="space-y-3">
-                        {/* Linha 1: Imagem + Nome + Preço */}
-                        <div className="flex items-center space-x-3">
-                          <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 animate-fadeInScale">
+                        {/* Linha 1: Imagem + Info Principal */}
+                        <div className="flex items-start space-x-3">
+                          <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 animate-fadeInScale">
                             <Image
                               src={item.bebida.imagem || "/placeholder.svg"}
                               alt={item.bebida.nome}
-                              width={56}
-                              height={56}
+                              width={64}
+                              height={64}
                               className="w-full h-full object-cover transition-transform duration-300 hover:scale-110"
                             />
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-bold text-base text-gray-800 truncate">{item.bebida.nome}</h3>
-                            <div className="flex items-center justify-between mt-1">
+                          <div className="flex-1 min-w-0 space-y-2">
+                            {/* Nome do produto - QUEBRA DE LINHA CORRIGIDA */}
+                            <h3 className="font-bold text-sm leading-tight text-gray-800 break-words">
+                              {item.bebida.nome}
+                            </h3>
+
+                            {/* Preço e categoria em linha separada */}
+                            <div className="flex items-center justify-between">
                               <span className="text-lg font-bold text-green-600">
                                 R$ {item.bebida.preco.toFixed(2)}
                               </span>
@@ -2717,7 +2806,7 @@ function BebidasOnAppContent() {
                           </div>
                         </div>
 
-                        {/* Linha 2: Controles de Quantidade */}
+                        {/* Linha 2: Controles de Quantidade e Subtotal */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-3 bg-gray-50 rounded-lg p-2 animate-slideInLeft">
                             <Button
@@ -2839,7 +2928,7 @@ function BebidasOnAppContent() {
               </div>
               <p className="text-white/90 text-lg font-medium animate-slideInUp">Buzinou, chegou! 📱</p>
               {modoTeste && (
-                <Badge className="mt-3 bg-yellow-500 text-black text-sm animate-bounce">🧪 MODO TESTE ATIVO</Badge>
+                <Badge className="mt-3 bg-yellow-500 text-black text-sm animate-bounce">🧪 MODO DEMONSTRAÇÃO</Badge>
               )}
             </div>
 
@@ -2926,7 +3015,7 @@ function BebidasOnAppContent() {
             </div>
             <div className="text-center">
               <h1 className="text-2xl font-bold">Cardápio</h1>
-              {modoTeste && <Badge className="bg-yellow-500 text-black text-xs">🧪 TESTE</Badge>}
+              {modoTeste && <Badge className="bg-yellow-500 text-black text-xs">🧪 DEMO</Badge>}
             </div>
           </div>
           <Button
@@ -3022,7 +3111,7 @@ function BebidasOnAppContent() {
 
                   <div className="space-y-3">
                     <div>
-                      <h3 className="font-bold text-xl text-gray-800 mb-1">{bebida.nome}</h3>
+                      <h3 className="font-bold text-xl text-gray-800 mb-1 leading-tight break-words">{bebida.nome}</h3>
                       {bebida.descricao && <p className="text-gray-600 text-sm line-clamp-2">{bebida.descricao}</p>}
                     </div>
 
