@@ -184,7 +184,7 @@ function BebidasOnAppContent() {
   const [quantidadesSelecionadas, setQuantidadesSelecionadas] = useState<{ [key: number]: number }>({})
   const [modoTeste, setModoTeste] = useState(false) // 🔴 MODO PRODUÇÃO POR PADRÃO
   const [buscaProdutos, setBuscaProdutos] = useState("")
-  const [carregandoDados, setCarregandoDados] = useState(true) // Estado para controlar loading inicial
+  const [carregandoDados, setCarregandoDados] = useState(false) // Removido loading inicial
 
   const [novoItem, setNovoItem] = useState({
     nome: "",
@@ -213,23 +213,13 @@ function BebidasOnAppContent() {
 
   const carregarDados = async () => {
     try {
-      setCarregandoDados(true)
-
       if (modoTeste) {
-        // 🧪 MODO TESTE - Carregamento instantâneo
         console.log("🧪 Carregando dados de teste...")
         carregarDadosTeste()
-        setCarregandoDados(false)
       } else {
-        // 🔴 MODO PRODUÇÃO - Tentar carregar do Supabase sem timeout
         console.log("🔄 Carregando dados do Supabase...")
-
-        // Timeout instantâneo (ou seja, não há timeout)
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000));
-
         try {
-          await Promise.race([Promise.all([carregarCategorias(), carregarBebidas()]), timeoutPromise])
-          setCarregandoDados(false)
+          await Promise.all([carregarCategorias(), carregarBebidas(), carregarPedidos()])
           console.log("✅ Dados carregados do Supabase com sucesso!")
         } catch (error) {
           console.warn("⚠️ Erro ao carregar do Supabase:", error)
@@ -238,8 +228,6 @@ function BebidasOnAppContent() {
             title: "❌ Erro de conexão",
             description: "Não foi possível carregar o cardápio. Verifique sua conexão.",
           })
-          setCarregandoDados(false)
-          // Não ativar modo teste automaticamente, deixar o usuário decidir
         }
       }
     } catch (error) {
@@ -249,7 +237,6 @@ function BebidasOnAppContent() {
         title: "❌ Erro crítico",
         description: "Falha ao inicializar o sistema.",
       })
-      setCarregandoDados(false)
     }
   }
 
@@ -543,6 +530,39 @@ function BebidasOnAppContent() {
     }
   }
 
+  const carregarPedidos = async () => {
+    try {
+      console.log("🔄 Carregando pedidos do Supabase...")
+      const { data, error } = await supabase.from("pedidos").select("*").order("created_at", { ascending: false })
+
+      if (error) {
+        console.error("❌ Erro ao carregar pedidos:", error)
+        return
+      }
+
+      // Converter os dados do Supabase para o formato do app
+      const pedidosFormatados = (data || []).map((pedido) => ({
+        id: pedido.id,
+        data: new Date(pedido.created_at).toLocaleString("pt-BR"),
+        itens: pedido.itens || [],
+        total: pedido.total,
+        formaPagamento: pedido.forma_pagamento,
+        valorPago: pedido.valor_pago,
+        troco: pedido.troco,
+        cliente: pedido.cliente,
+        tipoEntrega: pedido.tipo_entrega,
+        enderecoEntrega: pedido.endereco_entrega,
+        localizacao: pedido.localizacao,
+        status: pedido.status || "enviado",
+      }))
+
+      setPedidos(pedidosFormatados)
+      console.log("✅ Pedidos carregados:", pedidosFormatados.length)
+    } catch (error) {
+      console.error("❌ Erro ao carregar pedidos:", error)
+    }
+  }
+
   const getQuantidadeSelecionada = (bebidaId: number) => {
     return quantidadesSelecionadas[bebidaId] || 1
   }
@@ -795,6 +815,7 @@ function BebidasOnAppContent() {
       } else {
         mensagem += `🏪 *Tipo:* RETIRADA NO LOCAL\n`
         mensagem += `📍 *Local:* Rua Amazonas 239 - Paraíso/SP\n`
+        mensagem += `\n`
       }
 
       mensagem += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`
@@ -1512,10 +1533,10 @@ function BebidasOnAppContent() {
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
               <div className="flex items-center space-x-2 mb-2">
                 <div className="w-5 h-5 text-orange-600">💰</div>
-                <span className="text-sm font-medium text-orange-800">Vendas</span>
+                <span className="text-sm font-medium text-orange-800">Vendas Totais</span>
               </div>
               <div className="text-2xl font-bold text-orange-600">
-                R$ {pedidos.reduce((total, pedido) => total + pedido.total, 0).toFixed(2)}
+                R$ {pedidos.reduce((total, pedido) => total + (pedido.total || 0), 0).toFixed(2)}
               </div>
             </div>
           </div>
@@ -2913,7 +2934,7 @@ function BebidasOnAppContent() {
               <div className="mb-6">
                 <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl border-4 border-white/30 animate-logo-chamativa">
                   <Image
-                    src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-MAf9kkdTHQNURZA6HEvE69rfyuTkMS.png"
+                    src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
                     alt="Bebidas ON Logo"
                     width={200}
                     height={200}
@@ -3006,7 +3027,7 @@ function BebidasOnAppContent() {
               onDoubleClick={acessoAdmin}
             >
               <Image
-                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-MAf9kkdTHQNURZA6HEvE69rfyuTkMS.png"
+                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
                 alt="Logo"
                 width={40}
                 height={40}
