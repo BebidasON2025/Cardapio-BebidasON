@@ -8,10 +8,6 @@ import {
   Plus,
   Minus,
   Search,
-  CreditCard,
-  Banknote,
-  Smartphone,
-  Share,
   Package,
   Beer,
   Coffee,
@@ -20,23 +16,15 @@ import {
   Droplets,
   Sparkles,
   CupSoda,
-  Save,
-  Edit,
-  Download,
   Instagram,
-  MapPin,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Image from "next/image"
 import { createClient } from "@supabase/supabase-js"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ToastProvider, useToast } from "@/components/toast"
 
 // 🗄️ CONFIGURAÇÃO DO SUPABASE
@@ -91,6 +79,14 @@ interface Pedido {
   enderecoEntrega?: string
   localizacao?: string
   status: "enviado" | "confirmado" | "entregue"
+}
+
+// Adicionar função para detectar iOS no início do componente, após as interfaces
+const detectarIOS = () => {
+  if (typeof window === "undefined") return false
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  )
 }
 
 const TAXA_ENTREGA = 1.0
@@ -184,7 +180,6 @@ function BebidasOnAppContent() {
   const [quantidadesSelecionadas, setQuantidadesSelecionadas] = useState<{ [key: number]: number }>({})
   const [modoTeste, setModoTeste] = useState(false) // 🔴 MODO PRODUÇÃO POR PADRÃO
   const [buscaProdutos, setBuscaProdutos] = useState("")
-  const [carregandoDados, setCarregandoDados] = useState(false) // Removido loading inicial
 
   const [novoItem, setNovoItem] = useState({
     nome: "",
@@ -199,6 +194,7 @@ function BebidasOnAppContent() {
     nome: "",
     icone: "package",
     cor: "amber",
+    descricao: "",
   })
 
   const [editandoItem, setEditandoItem] = useState<Bebida | null>(null)
@@ -218,17 +214,10 @@ function BebidasOnAppContent() {
         carregarDadosTeste()
       } else {
         console.log("🔄 Carregando dados do Supabase...")
-        try {
-          await Promise.all([carregarCategorias(), carregarBebidas(), carregarPedidos()])
-          console.log("✅ Dados carregados do Supabase com sucesso!")
-        } catch (error) {
-          console.warn("⚠️ Erro ao carregar do Supabase:", error)
-          addToast({
-            type: "error",
-            title: "❌ Erro de conexão",
-            description: "Não foi possível carregar o cardápio. Verifique sua conexão.",
-          })
-        }
+        // ⚡ CARREGAMENTO PARALELO E INSTANTÂNEO
+        const promises = [carregarCategorias(), carregarBebidas(), carregarPedidos()]
+        await Promise.allSettled(promises) // Usar allSettled para não falhar se um der erro
+        console.log("✅ Dados carregados do Supabase com sucesso!")
       }
     } catch (error) {
       console.error("❌ Erro crítico ao carregar dados:", error)
@@ -427,7 +416,7 @@ function BebidasOnAppContent() {
       }
 
       // Se existe, adicionar mais aleatoriedade
-      const extraRandom = Math.floor(Math.random() * 1000000)
+      const extraRandom = Math.floor(Math.random() * 100000)
       const idFinal = `${idBase}${extraRandom.toString().padStart(6, "0")}`
 
       console.log("✅ ID único gerado:", idFinal)
@@ -477,70 +466,61 @@ function BebidasOnAppContent() {
 
   const carregarCategorias = async () => {
     try {
-      console.log("🔄 Carregando categorias...")
-      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("nome")
+      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("nome").limit(50)
 
-      if (error) {
-        console.error("❌ Erro ao carregar categorias:", error)
-        throw error
-      }
-
+      if (error) throw error
       setCategorias(data || [])
       console.log("✅ Categorias carregadas:", data?.length)
     } catch (error) {
       console.error("❌ Erro ao carregar categorias:", error)
-      throw error // Re-throw para ser capturado em carregarDados
+      // Não fazer throw para não quebrar o carregamento
     }
   }
 
   const carregarBebidas = async () => {
     try {
-      console.log("🔄 Carregando bebidas...")
+      // ⚡ CARREGAMENTO OTIMIZADO COM JOIN
       const { data: bebidasData, error: bebidasError } = await supabase
         .from("bebidas")
-        .select("*")
+        .select(`
+        *,
+        categorias (
+          id,
+          nome,
+          icone,
+          cor,
+          ativo
+        )
+      `)
         .eq("ativo", true)
         .order("nome")
+        .limit(100)
 
-      if (bebidasError) {
-        console.error("❌ Erro ao carregar bebidas:", bebidasError)
-        throw bebidasError
-      }
+      if (bebidasError) throw bebidasError
 
-      const { data: categoriasData, error: categoriasError } = await supabase
-        .from("categorias")
-        .select("*")
-        .eq("ativo", true)
-
-      if (categoriasError) {
-        console.error("❌ Erro ao carregar categorias para bebidas:", categoriasError)
-        throw categoriasError
-      }
-
-      const bebidasComCategorias = (bebidasData || []).map((bebida) => {
-        const categoria = (categoriasData || []).find((cat) => cat.id === bebida.categoria_id)
-        return { ...bebida, categoria: categoria || null }
-      })
+      const bebidasComCategorias = (bebidasData || []).map((bebida) => ({
+        ...bebida,
+        categoria: bebida.categorias || null,
+      }))
 
       setBebidas(bebidasComCategorias)
       console.log("✅ Bebidas carregadas:", bebidasComCategorias.length)
     } catch (error) {
       console.error("❌ Erro ao carregar bebidas:", error)
-      throw error // Re-throw para ser capturado em carregarDados
+      // Não fazer throw para não quebrar o carregamento
     }
   }
 
   const carregarPedidos = async () => {
     try {
-      console.log("🔄 Carregando pedidos do Supabase...")
-      const { data, error } = await supabase.from("pedidos").select("*").order("created_at", { ascending: false })
+      const { data, error } = await supabase
+        .from("pedidos")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50)
 
-      if (error) {
-        console.error("❌ Erro ao carregar pedidos:", error)
-        return
-      }
+      if (error) throw error
 
-      // Converter os dados do Supabase para o formato do app
       const pedidosFormatados = (data || []).map((pedido) => ({
         id: pedido.id,
         data: new Date(pedido.created_at).toLocaleString("pt-BR"),
@@ -560,6 +540,7 @@ function BebidasOnAppContent() {
       console.log("✅ Pedidos carregados:", pedidosFormatados.length)
     } catch (error) {
       console.error("❌ Erro ao carregar pedidos:", error)
+      // Não fazer throw para não quebrar o carregamento
     }
   }
 
@@ -642,7 +623,7 @@ function BebidasOnAppContent() {
     if (formaPagamento === "dinheiro" && valorPago) {
       const valor = Number.parseFloat(valorPago)
       const totalComTaxa = totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
-      return valor > totalComTaxa ? valor - totalComTaxa : 0
+      return valor - totalComTaxa
     }
     return 0
   }
@@ -662,8 +643,6 @@ function BebidasOnAppContent() {
 
     const nomeClientePadrao = "Cliente"
 
-    // Endereço de entrega agora é opcional
-
     const totalComTaxa = totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
     if (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComTaxa)) {
       addToast({
@@ -682,6 +661,11 @@ function BebidasOnAppContent() {
       if (tipoEntrega === "entrega" && enderecoEntrega.trim()) {
         try {
           localizacaoFinal = await obterLocalizacaoAtual()
+          addToast({
+            type: "info",
+            title: "📍 Localização capturada!",
+            description: "Sua localização será enviada junto com o pedido",
+          })
         } catch (error) {
           console.warn("⚠️ Não foi possível obter localização, continuando sem ela")
           localizacaoFinal = ""
@@ -735,7 +719,6 @@ function BebidasOnAppContent() {
           dadosParaInserir.localizacao = novoPedido.localizacao
         }
 
-        // Remove the retry insertion logic and replace with simple insertion
         const { error } = await supabase.from("pedidos").insert([dadosParaInserir])
 
         if (error) {
@@ -773,12 +756,11 @@ function BebidasOnAppContent() {
       setPedidos((prev) => [novoPedido, ...prev])
       setPedidoAtual(novoPedido)
 
-      // 🚀 COMPARTILHAMENTO AUTOMÁTICO NO WHATSAPP
+      // ⚡ COMPORTAMENTO AUTOMÁTICO PARA TODOS OS DISPOSITIVOS
       setTimeout(async () => {
         await compartilharComprovanteAutomatico(novoPedido)
-        // Ir para tela de comprovante após compartilhar
         setTelaAtual("comprovante")
-      }, 1000) // Delay maior para garantir que o WhatsApp abra primeiro
+      }, 300)
 
       console.log("✅ Pedido finalizado com sucesso:", novoPedido.id)
     } catch (error) {
@@ -795,6 +777,17 @@ function BebidasOnAppContent() {
 
   const compartilharComprovante = async () => {
     if (!pedidoAtual) return
+
+    const isIOS = detectarIOS()
+
+    if (isIOS) {
+      addToast({
+        type: "info",
+        title: "📱 Abrindo WhatsApp...",
+        description: "Se não abrir automaticamente, copie e cole a mensagem",
+        duration: 3000,
+      })
+    }
 
     try {
       let mensagem = `🍻 *PEDIDO BEBIDAS ON* 🍻\n`
@@ -864,6 +857,17 @@ function BebidasOnAppContent() {
       const whatsappUrl = `https://wa.me/${TELEFONE_WHATSAPP}?text=${encodeURIComponent(mensagem)}`
       window.open(whatsappUrl, "_blank")
 
+      if (isIOS) {
+        setTimeout(() => {
+          addToast({
+            type: "success",
+            title: "✅ Mensagem preparada!",
+            description: "WhatsApp deve ter aberto com seu pedido",
+            duration: 3000,
+          })
+        }, 1500)
+      }
+
       setTimeout(() => {
         setCarrinho([])
         setEnderecoEntrega("")
@@ -878,7 +882,9 @@ function BebidasOnAppContent() {
       addToast({
         type: "error",
         title: "Erro ao compartilhar",
-        description: "Ocorreu um erro ao tentar compartilhar o comprovante.",
+        description: isIOS
+          ? "Tente abrir o WhatsApp manualmente e colar a mensagem"
+          : "Ocorreu um erro ao tentar compartilhar o comprovante.",
       })
     }
   }
@@ -948,16 +954,52 @@ function BebidasOnAppContent() {
         mensagem += `🏪 Retire no balcão! 🧊`
       }
 
-      const whatsappUrl = `https://wa.me/${TELEFONE_WHATSAPP}?text=${encodeURIComponent(mensagem)}`
-      window.open(whatsappUrl, "_blank")
+      try {
+        const whatsappUrl = `https://wa.me/${TELEFONE_WHATSAPP}?text=${encodeURIComponent(mensagem)}`
+        window.location.href = whatsappUrl
+        console.log("✅ Método location.href executado")
+
+        setTimeout(() => {
+          const popup = window.open(whatsappUrl, "_blank", "noopener,noreferrer")
+          if (popup) {
+            popup.focus()
+          }
+          console.log("✅ Método window.open executado")
+        }, 50)
+
+        setTimeout(() => {
+          const link = document.createElement("a")
+          link.href = whatsappUrl
+          link.target = "_blank"
+          link.rel = "noopener noreferrer"
+          link.style.position = "absolute"
+          link.style.left = "-9999px"
+          document.body.appendChild(link)
+
+          const touchStart = new TouchEvent("touchstart", { bubbles: true })
+          const touchEnd = new TouchEvent("touchend", { bubbles: true })
+          const click = new MouseEvent("click", { bubbles: true })
+
+          link.dispatchEvent(touchStart)
+          link.dispatchEvent(touchEnd)
+          link.dispatchEvent(click)
+          link.click()
+
+          setTimeout(() => document.body.removeChild(link), 100)
+          console.log("✅ Método link com eventos de toque executado")
+        }, 100)
+      } catch (error) {
+        console.error("❌ Erro nos métodos automáticos:", error)
+        window.open(`https://wa.me/${TELEFONE_WHATSAPP}?text=${encodeURIComponent(mensagem)}`, "_blank")
+      }
 
       addToast({
         type: "success",
-        title: "🚀 Pedido enviado automaticamente!",
-        description: "WhatsApp aberto com seu comprovante pronto",
+        title: "🚀 WhatsApp abrindo automaticamente!",
+        description: "Seu pedido está sendo enviado...",
+        duration: 2000,
       })
 
-      // Limpar carrinho após envio automático
       setTimeout(() => {
         setCarrinho([])
         setEnderecoEntrega("")
@@ -1053,7 +1095,6 @@ function BebidasOnAppContent() {
     }
 
     if (modoTeste) {
-      // 🧪 MODO TESTE - Apenas simular
       const novaCategoriaTeste: Categoria = {
         id: Date.now(),
         nome: novaCategoria.nome,
@@ -1062,7 +1103,7 @@ function BebidasOnAppContent() {
         ativo: true,
       }
       setCategorias((prev) => [...prev, novaCategoriaTeste])
-      setNovaCategoria({ nome: "", icone: "package", cor: "amber" })
+      setNovaCategoria({ nome: "", icone: "package", cor: "amber", descricao: "" })
       addToast({
         type: "info",
         title: "🧪 TESTE: Categoria criada localmente!",
@@ -1095,7 +1136,7 @@ function BebidasOnAppContent() {
         return
       }
 
-      setNovaCategoria({ nome: "", icone: "package", cor: "amber" })
+      setNovaCategoria({ nome: "", icone: "package", cor: "amber", descricao: "" })
       await carregarCategorias()
       addToast({
         type: "success",
@@ -1125,7 +1166,6 @@ function BebidasOnAppContent() {
     }
 
     if (modoTeste) {
-      // 🧪 MODO TESTE - Apenas simular
       const novaBebidaTeste: Bebida = {
         id: Date.now(),
         nome: novoItem.nome,
@@ -1197,7 +1237,6 @@ function BebidasOnAppContent() {
     const bebida = bebidas.find((b) => b.id === id)
     if (bebida && confirm(`❌ Tem certeza que deseja excluir "${bebida.nome}"?`)) {
       if (modoTeste) {
-        // 🧪 MODO TESTE - Apenas simular
         setBebidas((prev) => prev.filter((b) => b.id !== id))
         addToast({
           type: "info",
@@ -1235,7 +1274,6 @@ function BebidasOnAppContent() {
 
   const atualizarEstoque = async (id: number, novoEstoque: number) => {
     if (modoTeste) {
-      // 🧪 MODO TESTE - Apenas simular
       setBebidas((prev) => prev.map((b) => (b.id === id ? { ...b, estoque: novoEstoque } : b)))
       return
     }
@@ -1271,9 +1309,18 @@ function BebidasOnAppContent() {
       setModoTeste(true)
       addToast({
         type: "info",
-        title: "🧪 Modo teste ativado!",
-        description: "Você está agora no modo de teste.",
+        title: "🧪 Modo demonstração ativado!",
+        description: "Agora você está no modo de demonstração com dados fictícios.",
       })
+    } else if (senha === "producao123") {
+      console.log("🔴 Modo produção ativado")
+      setModoTeste(false)
+      addToast({
+        type: "success",
+        title: "🔴 Modo produção ativado!",
+        description: "Voltando aos dados reais do banco.",
+      })
+      carregarDados() // Recarregar dados reais
     } else if (senha !== null) {
       addToast({
         type: "error",
@@ -1287,7 +1334,6 @@ function BebidasOnAppContent() {
     const categoria = categorias.find((c) => c.id === id)
     if (categoria && confirm(`❌ Tem certeza que deseja excluir "${categoria.nome}"?`)) {
       if (modoTeste) {
-        // 🧪 MODO TESTE - Apenas simular
         setCategorias((prev) => prev.filter((c) => c.id !== id))
         addToast({
           type: "info",
@@ -1324,7 +1370,14 @@ function BebidasOnAppContent() {
   }
 
   const editarBebida = async () => {
-    if (!editandoItem || !editandoItem.nome || !editandoItem.preco || !editandoItem.categoria_id) {
+    console.log("🔧 Editando bebida:", editandoItem)
+    if (
+      !editandoItem ||
+      !editandoItem.nome.trim() ||
+      !editandoItem.preco ||
+      editandoItem.preco <= 0 ||
+      !editandoItem.categoria_id
+    ) {
       addToast({
         type: "error",
         title: "Campos obrigatórios ausentes!",
@@ -1334,7 +1387,6 @@ function BebidasOnAppContent() {
     }
 
     if (modoTeste) {
-      // 🧪 MODO TESTE - Apenas simular
       setBebidas((prev) =>
         prev.map((b) =>
           b.id === editandoItem.id
@@ -1396,6 +1448,7 @@ function BebidasOnAppContent() {
   }
 
   const editarCategoria = async () => {
+    console.log("🔧 Editando categoria:", editandoCategoria)
     if (!editandoCategoria || !editandoCategoria.nome.trim()) {
       addToast({
         type: "error",
@@ -1406,7 +1459,6 @@ function BebidasOnAppContent() {
     }
 
     if (modoTeste) {
-      // 🧪 MODO TESTE - Apenas simular
       setCategorias((prev) => prev.map((c) => (c.id === editandoCategoria.id ? editandoCategoria : c)))
       setEditandoCategoria(null)
       addToast({
@@ -1482,1428 +1534,11 @@ function BebidasOnAppContent() {
       (bebida.descricao && bebida.descricao.toLowerCase().includes(buscaProdutos.toLowerCase())),
   )
 
-  // TELA ADMIN - OTIMIZADA PARA MOBILE
-  if (telaAtual === "admin") {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        {/* Header Admin */}
-        <div className="bg-white border-b border-gray-200 p-4 shadow-sm">
-          <div className="flex items-center justify-between max-w-7xl mx-auto">
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 text-gray-600">🔧</div>
-              <h1 className="text-xl font-bold text-gray-800">Painel Administrativo</h1>
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => setTelaAtual("inicio")}
-              className="text-gray-600 hover:text-gray-800"
-            >
-              ✕
-            </Button>
-          </div>
-        </div>
-
-        <div className="max-w-7xl mx-auto p-6">
-          {/* Cards de Estatísticas */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center space-x-2 mb-2">
-                <div className="w-5 h-5 text-blue-600">📦</div>
-                <span className="text-sm font-medium text-blue-800">Produtos</span>
-              </div>
-              <div className="text-2xl font-bold text-blue-600">{bebidas.length}</div>
-            </div>
-
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <div className="flex items-center space-x-2 mb-2">
-                <div className="w-5 h-5 text-purple-600">🏷️</div>
-                <span className="text-sm font-medium text-purple-800">Categorias</span>
-              </div>
-              <div className="text-2xl font-bold text-purple-600">{categorias.length}</div>
-            </div>
-
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-center space-x-2 mb-2">
-                <div className="w-5 h-5 text-green-600">📋</div>
-                <span className="text-sm font-medium text-green-800">Pedidos</span>
-              </div>
-              <div className="text-2xl font-bold text-green-600">{pedidos.length}</div>
-            </div>
-
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-center space-x-2 mb-2">
-                <div className="w-5 h-5 text-orange-600">💰</div>
-                <span className="text-sm font-medium text-orange-800">Vendas Totais</span>
-              </div>
-              <div className="text-2xl font-bold text-orange-600">
-                R$ {pedidos.reduce((total, pedido) => total + (pedido.total || 0), 0).toFixed(2)}
-              </div>
-            </div>
-          </div>
-
-          {/* Abas */}
-          <div className="flex space-x-1 mb-6">
-            <button
-              onClick={() => setAbaAdmin("categorias")}
-              className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                abaAdmin === "categorias"
-                  ? "bg-orange-500 text-white"
-                  : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
-              }`}
-            >
-              🏷️ Categorias
-            </button>
-            <button
-              onClick={() => setAbaAdmin("produtos")}
-              className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                abaAdmin === "produtos"
-                  ? "bg-gray-800 text-white"
-                  : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
-              }`}
-            >
-              📦 Produtos
-            </button>
-            <button
-              onClick={() => setAbaAdmin("pedidos")}
-              className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                abaAdmin === "pedidos"
-                  ? "bg-green-600 text-white"
-                  : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
-              }`}
-            >
-              📋 Vendas
-            </button>
-          </div>
-
-          {/* Conteúdo das Abas */}
-          {abaAdmin === "categorias" && (
-            <div className="space-y-6">
-              {/* Gerenciar Categorias */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center space-x-2 mb-4">
-                  <div className="w-5 h-5 text-purple-600">🏷️</div>
-                  <h2 className="text-lg font-bold text-purple-600">Gerenciar Categorias</h2>
-                </div>
-
-                {/* Adicionar Nova Categoria */}
-                <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                  <div className="flex items-center space-x-2 mb-4">
-                    <div className="w-4 h-4 text-purple-600">➕</div>
-                    <h3 className="font-semibold text-gray-800">Adicionar Nova Categoria</h3>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Categoria *</label>
-                      <Input
-                        value={novaCategoria.nome}
-                        onChange={(e) => setNovaCategoria({ ...novaCategoria, nome: e.target.value })}
-                        placeholder="Ex: Cervejas, Vinhos, etc."
-                        className="w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Descrição (opcional)</label>
-                      <Input placeholder="Descrição da categoria" className="w-full" />
-                    </div>
-                  </div>
-
-                  <Button
-                    onClick={adicionarNovaCategoria}
-                    disabled={carregando}
-                    className="bg-purple-600 hover:bg-purple-700 text-white"
-                  >
-                    {carregando ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Salvando...
-                      </>
-                    ) : (
-                      <>➕ Adicionar Categoria</>
-                    )}
-                  </Button>
-                </div>
-
-                {/* Categorias Existentes */}
-                <div>
-                  <div className="flex items-center space-x-2 mb-4">
-                    <div className="w-4 h-4 text-gray-600">📋</div>
-                    <h3 className="font-semibold text-gray-800">Categorias Existentes</h3>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {categorias.map((categoria) => {
-                      const produtosDaCategoria = bebidas.filter((b) => b.categoria_id === categoria.id).length
-                      const IconeComponent = getIconeCategoria(categoria.icone)
-                      const corInfo = getCorCategoria(categoria.cor)
-
-                      return (
-                        <div
-                          key={categoria.id}
-                          className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center space-x-2">
-                              <div className={`w-6 h-6 rounded ${corInfo.classe} flex items-center justify-center`}>
-                                <IconeComponent className="w-3 h-3 text-white" />
-                              </div>
-                              <h4 className="font-semibold text-gray-800">{categoria.nome}</h4>
-                            </div>
-                            <div className="flex space-x-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setEditandoCategoria(categoria)}
-                                className="h-6 w-6 p-0 text-blue-600 hover:bg-blue-50"
-                              >
-                                ✏️
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => excluirCategoria(categoria.id)}
-                                className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
-                              >
-                                🗑️
-                              </Button>
-                            </div>
-                          </div>
-                          <div className="text-sm text-gray-600">{produtosDaCategoria} produtos</div>
-                          <div className="text-xs text-gray-500 mt-1">ID: {categoria.id}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {abaAdmin === "produtos" && (
-            <div className="space-y-6">
-              {/* Gerenciar Produtos */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center space-x-2 mb-4">
-                  <div className="w-5 h-5 text-orange-600">📦</div>
-                  <h2 className="text-lg font-bold text-orange-600">Gerenciar Produtos</h2>
-                </div>
-
-                {/* Adicionar Novo Produto */}
-                <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                  <div className="flex items-center space-x-2 mb-4">
-                    <div className="w-4 h-4 text-orange-600">➕</div>
-                    <h3 className="font-semibold text-gray-800">Adicionar Novo Produto</h3>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Produto *</label>
-                      <Input
-                        value={novoItem.nome}
-                        onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
-                        placeholder="Ex: Cerveja Artesanal IPA"
-                        className="w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Categoria *</label>
-                      <Select
-                        value={novoItem.categoria_id}
-                        onValueChange={(value) => setNovoItem({ ...novoItem, categoria_id: value })}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Selecione uma categoria" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categorias.map((categoria) => (
-                            <SelectItem key={categoria.id} value={categoria.id.toString()}>
-                              {categoria.nome}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-                    <Textarea
-                      value={novoItem.descricao}
-                      onChange={(e) => setNovoItem({ ...novoItem, descricao: e.target.value })}
-                      placeholder="Descrição detalhada do produto"
-                      rows={3}
-                      className="w-full resize-none"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$) *</label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={novoItem.preco}
-                        onChange={(e) => setNovoItem({ ...novoItem, preco: e.target.value })}
-                        placeholder="15.90"
-                        className="w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Estoque *</label>
-                      <Input
-                        type="number"
-                        value={novoItem.estoque}
-                        onChange={(e) => setNovoItem({ ...novoItem, estoque: e.target.value })}
-                        placeholder="50"
-                        className="w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Desconto (%)</label>
-                      <Input type="number" placeholder="20" className="w-full" />
-                    </div>
-                  </div>
-
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Imagem do Produto</label>
-                    <div className="flex space-x-2">
-                      <Input
-                        value={novoItem.imagem}
-                        onChange={(e) => setNovoItem({ ...novoItem, imagem: e.target.value })}
-                        placeholder="https://exemplo.com/imagem.jpg"
-                        className="flex-1"
-                      />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                        id="upload-image"
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="px-3 bg-transparent"
-                        onClick={() => document.getElementById("upload-image")?.click()}
-                      >
-                        📁 Escolher
-                      </Button>
-                    </div>
-                  </div>
-
-                  <Button
-                    onClick={adicionarNovaBebida}
-                    disabled={carregando}
-                    className="bg-orange-600 hover:bg-orange-700 text-white w-full"
-                  >
-                    {carregando ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Salvando...
-                      </>
-                    ) : (
-                      <>✅ Adicionar Produto</>
-                    )}
-                  </Button>
-                </div>
-
-                {/* Produtos Cadastrados - LAYOUT MOBILE CORRIGIDO */}
-                <div>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 space-y-2 sm:space-y-0">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 text-gray-600">📋</div>
-                      <h3 className="font-semibold text-gray-800">Produtos Cadastrados</h3>
-                    </div>
-                    <div className="relative w-full sm:w-64">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                      <Input
-                        placeholder="Buscar produto..."
-                        className="pl-10 w-full"
-                        value={buscaProdutos}
-                        onChange={(e) => setBuscaProdutos(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {produtosFiltrados.map((bebida) => (
-                      <div
-                        key={bebida.id}
-                        className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow"
-                      >
-                        {/* Layout Mobile Otimizado */}
-                        <div className="space-y-3">
-                          {/* Linha 1: Imagem + Info Principal */}
-                          <div className="flex items-start space-x-3">
-                            <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                              <Image
-                                src={bebida.imagem || "/placeholder.svg"}
-                                alt={bebida.nome}
-                                width={64}
-                                height={64}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-gray-800 text-sm leading-tight mb-1">{bebida.nome}</h4>
-                              <p className="text-xs text-gray-600 mb-2">{bebida.categoria?.nome || "Sem categoria"}</p>
-                              <div className="flex items-center justify-between">
-                                <span className="text-lg font-bold text-green-600">R$ {bebida.preco.toFixed(2)}</span>
-                                <div className="flex items-center space-x-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setEditandoItem(bebida)}
-                                    className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
-                                  >
-                                    ✏️
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => excluirBebida(bebida.id)}
-                                    className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
-                                  >
-                                    🗑️
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Linha 2: Estoque */}
-                          <div className="flex items-center justify-between bg-gray-50 rounded-lg p-2">
-                            <span className="text-sm text-gray-600">Estoque disponível:</span>
-                            <span className="font-bold text-lg">{bebida.estoque} unidades</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {abaAdmin === "pedidos" && (
-            <div className="space-y-6">
-              {/* Gerenciar Pedidos/Vendas */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="flex items-center space-x-2 mb-4">
-                  <div className="w-5 h-5 text-green-600">📋</div>
-                  <h2 className="text-lg font-bold text-green-600">Vendas Realizadas</h2>
-                </div>
-
-                {pedidos.length === 0 ? (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <div className="text-2xl">📋</div>
-                    </div>
-                    <p className="text-gray-500">Nenhuma venda realizada ainda</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {pedidos.map((pedido) => (
-                      <div key={pedido.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3">
-                          <div>
-                            <h3 className="font-bold text-lg text-gray-800">Pedido #{pedido.id}</h3>
-                            <p className="text-sm text-gray-600">{pedido.data}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xl font-bold text-green-600">R$ {pedido.total.toFixed(2)}</p>
-                            <Badge
-                              className={`${
-                                pedido.status === "enviado"
-                                  ? "bg-yellow-500"
-                                  : pedido.status === "confirmado"
-                                    ? "bg-blue-500"
-                                    : "bg-green-500"
-                              } text-white text-xs`}
-                            >
-                              {pedido.status.toUpperCase()}
-                            </Badge>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
-                          <div>
-                            <p className="text-sm text-gray-600">Cliente:</p>
-                            <p className="font-semibold">{pedido.cliente}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Tipo:</p>
-                            <p className="font-semibold">
-                              {pedido.tipoEntrega === "entrega" ? "🚚 Entrega" : "🏪 Retirada"}
-                            </p>
-                          </div>
-                        </div>
-
-                        {pedido.enderecoEntrega && (
-                          <div className="mb-3">
-                            <p className="text-sm text-gray-600">Endereço:</p>
-                            <p className="font-semibold text-sm">{pedido.enderecoEntrega}</p>
-                          </div>
-                        )}
-
-                        <div className="mb-3">
-                          <p className="text-sm text-gray-600">Pagamento:</p>
-                          <p className="font-semibold">{pedido.formaPagamento.toUpperCase()}</p>
-                          {pedido.formaPagamento === "dinheiro" && pedido.valorPago && (
-                            <p className="text-sm">
-                              Pago: R$ {pedido.valorPago.toFixed(2)}
-                              {pedido.troco && pedido.troco > 0 && ` | Troco: R$ ${pedido.troco.toFixed(2)}`}
-                            </p>
-                          )}
-                        </div>
-
-                        <div>
-                          <p className="text-sm text-gray-600 mb-2">Itens ({pedido.itens.length}):</p>
-                          <div className="space-y-1">
-                            {pedido.itens.map((item, index) => (
-                              <div key={index} className="flex justify-between text-sm">
-                                <span>
-                                  {item.quantidade}x {item.bebida.nome}
-                                </span>
-                                <span>R$ {(item.bebida.preco * item.quantidade).toFixed(2)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Modais de Edição */}
-        {editandoItem && (
-          <Dialog open={!!editandoItem} onOpenChange={() => setEditandoItem(null)}>
-            <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="text-lg text-gray-800 flex items-center">
-                  <Edit className="w-5 h-5 mr-2 text-blue-600" />
-                  Editar: {editandoItem.nome}
-                  {modoTeste && <Badge className="ml-2 bg-yellow-500 text-black text-xs">🧪</Badge>}
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 mt-4">
-                <Input
-                  value={editandoItem.nome}
-                  onChange={(e) => setEditandoItem({ ...editandoItem, nome: e.target.value })}
-                  placeholder="Nome *"
-                  className="h-10"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={editandoItem.preco}
-                    onChange={(e) =>
-                      setEditandoItem({ ...editandoItem, preco: Number.parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="Preço *"
-                    className="h-10"
-                  />
-                  <Input
-                    type="number"
-                    value={editandoItem.estoque}
-                    onChange={(e) =>
-                      setEditandoItem({ ...editandoItem, estoque: Number.parseInt(e.target.value) || 0 })
-                    }
-                    placeholder="Estoque"
-                    className="h-10"
-                  />
-                </div>
-                <Select
-                  value={editandoItem.categoria_id?.toString()}
-                  onValueChange={(value) => setEditandoItem({ ...editandoItem, categoria_id: Number.parseInt(value) })}
-                >
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Categoria *" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categorias.map((categoria) => (
-                      <SelectItem key={categoria.id} value={categoria.id.toString()}>
-                        {categoria.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Textarea
-                  value={editandoItem.descricao || ""}
-                  onChange={(e) => setEditandoItem({ ...editandoItem, descricao: e.target.value })}
-                  placeholder="Descrição"
-                  rows={2}
-                  className="resize-none"
-                />
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Imagem do Produto</label>
-                  <div className="space-y-2">
-                    <div className="flex space-x-2">
-                      <Input
-                        value={editandoItem.imagem || ""}
-                        onChange={(e) => setEditandoItem({ ...editandoItem, imagem: e.target.value })}
-                        placeholder="URL da imagem"
-                        className="flex-1 h-10"
-                      />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                        id="upload-image-edit"
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="px-3 bg-transparent whitespace-nowrap"
-                        onClick={() => document.getElementById("upload-image-edit")?.click()}
-                      >
-                        📷 Escolher Foto
-                      </Button>
-                    </div>
-                    {editandoItem.imagem && (
-                      <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-100 border">
-                        <Image
-                          src={editandoItem.imagem || "/placeholder.svg"}
-                          alt="Preview"
-                          width={80}
-                          height={80}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col space-y-2 mt-4">
-                <Button
-                  onClick={editarBebida}
-                  disabled={carregando}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white h-10"
-                >
-                  {carregando ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      {modoTeste ? "🧪 Salvar (Teste)" : "Salvar Alterações"}
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setEditandoItem(null)}
-                  disabled={carregando}
-                  className="w-full h-10"
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
-
-        {editandoCategoria && (
-          <Dialog open={!!editandoCategoria} onOpenChange={() => setEditandoCategoria(null)}>
-            <DialogContent className="max-w-[95vw]">
-              <DialogHeader>
-                <DialogTitle className="text-lg text-gray-800 flex items-center">
-                  <Edit className="w-5 h-5 mr-2 text-blue-600" />
-                  Editar: {editandoCategoria.nome}
-                  {modoTeste && <Badge className="ml-2 bg-yellow-500 text-black text-xs">🧪</Badge>}
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 mt-4">
-                <Input
-                  value={editandoCategoria.nome}
-                  onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
-                  placeholder="Nome *"
-                  className="h-10"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <Select
-                    value={editandoCategoria.icone}
-                    onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, icone: value })}
-                  >
-                    <SelectTrigger className="h-10">
-                      <SelectValue placeholder="Ícone" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ICONES_CATEGORIAS.map((icone) => (
-                        <SelectItem key={icone.valor} value={icone.valor}>
-                          {icone.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={editandoCategoria.cor}
-                    onValueChange={(value) => setEditandoCategoria({ ...editandoCategoria, cor: value })}
-                  >
-                    <SelectTrigger className="h-10">
-                      <SelectValue placeholder="Cor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CORES_CATEGORIAS.map((cor) => (
-                        <SelectItem key={cor.valor} value={cor.valor}>
-                          {cor.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex flex-col space-y-2 mt-4">
-                <Button
-                  onClick={editarCategoria}
-                  disabled={carregando}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white h-10"
-                >
-                  {carregando ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      {modoTeste ? "🧪 Salvar (Teste)" : "Salvar Alterações"}
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setEditandoCategoria(null)}
-                  disabled={carregando}
-                  className="w-full h-10"
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
-      </div>
-    )
-  }
-
-  // TELA DE COMPROVANTE
-  if (telaAtual === "comprovante") {
-    if (!pedidoAtual) {
-      return (
-        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-          <div className="text-center animate-fadeInScale">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
-            <p className="text-lg mb-4">⏳ Gerando comprovante...</p>
-            <Button onClick={() => setTelaAtual("inicio")} className="bg-orange-500 text-white hover-lift">
-              Voltar ao Início
-            </Button>
-          </div>
-        </div>
-      )
-    }
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center p-4">
-        <div className="max-w-md w-full animate-fadeInScale">
-          {/* Comprovante */}
-          <div
-            ref={comprovanteRef}
-            className="bg-gradient-to-b from-gray-800 to-gray-900 text-white p-8 rounded-2xl shadow-2xl"
-          >
-            {/* Cabeçalho */}
-            <div className="text-center mb-8">
-              <h1 className="text-3xl font-bold text-yellow-400 mb-2">BEBIDAS ON</h1>
-              <p className="text-gray-300 text-lg">Comprovante de Venda</p>
-              {modoTeste && <Badge className="mt-2 bg-yellow-500 text-black text-xs">🧪 MODO TESTE</Badge>}
-            </div>
-
-            {/* Informações da Empresa */}
-            <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-              <div>
-                <p className="text-gray-300">Telefone: </p>
-                <p className="font-semibold">{TELEFONE_DISPLAY}</p>
-              </div>
-              <div>
-                <p className="text-gray-300">CNPJ:</p>
-                <p className="font-semibold text-xs">46.203.975/8000-00</p>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <p className="text-gray-300 text-sm">Endereço:</p>
-              <p className="font-semibold">Rua Amazonas 239 - Paraíso/SP</p>
-            </div>
-
-            <hr className="border-gray-600 mb-6" />
-
-            {/* Informações do Pedido */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div>
-                <p className="text-gray-300 text-sm">Venda Nº:</p>
-                <p className="font-bold text-yellow-400 text-lg">{pedidoAtual.id}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-gray-300 text-sm">Data e Hora:</p>
-                <p className="font-semibold text-sm">{pedidoAtual.data}</p>
-              </div>
-            </div>
-
-            <hr className="border-gray-600 mb-6" />
-
-            {/* Informações de Entrega */}
-            <div className="mb-6">
-              <p className="text-gray-300 text-sm">Tipo de Entrega:</p>
-              <p className="font-bold text-lg uppercase">
-                {pedidoAtual.tipoEntrega === "entrega" ? "🚚 ENTREGA" : "🏪 RETIRADA NO LOCAL"}
-              </p>
-              {pedidoAtual.tipoEntrega === "entrega" && pedidoAtual.enderecoEntrega && (
-                <div className="mt-2">
-                  <p className="text-gray-300 text-sm">Endereço:</p>
-                  <p className="font-semibold text-sm">{pedidoAtual.enderecoEntrega}</p>
-                  {pedidoAtual.localizacao && <p className="text-xs text-blue-300 mt-1">{pedidoAtual.localizacao}</p>}
-                </div>
-              )}
-            </div>
-
-            <hr className="border-gray-600 mb-6" />
-
-            {/* Itens da Venda */}
-            <div className="mb-6">
-              <p className="text-gray-300 text-sm mb-4">Itens da Venda:</p>
-              <div className="space-y-3">
-                {pedidoAtual.itens.map((item, index) => (
-                  <div key={index} className="bg-gray-700 p-3 rounded-lg">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <p className="font-semibold">{item.bebida.nome}</p>
-                        <p className="text-xs text-gray-300">
-                          {item.quantidade} un. x R$ {item.bebida.preco.toFixed(2)}
-                        </p>
-                      </div>
-                      <p className="font-bold text-yellow-400">R$ {(item.bebida.preco * item.quantidade).toFixed(2)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <hr className="border-gray-600 mb-6" />
-
-            {/* Total */}
-            <div className="space-y-2 mb-6">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-300">Subtotal dos Itens:</span>
-                <span className="font-semibold">R$ {subtotalItens.toFixed(2)}</span>
-              </div>
-              {pedidoAtual.tipoEntrega === "entrega" ? (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-300">Taxa de Entrega:</span>
-                  <span className="font-semibold">R$ {TAXA_ENTREGA.toFixed(2)}</span>
-                </div>
-              ) : (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-300">Retirada no Local:</span>
-                  <span className="font-semibold text-green-400">R$ 0,00</span>
-                </div>
-              )}
-              <div className="flex justify-between text-2xl font-bold">
-                <span>Valor Final:</span>
-                <span className="text-yellow-400">R$ {pedidoAtual.total.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Forma de Pagamento */}
-            <div className="text-center bg-gray-700 p-3 rounded-lg">
-              <p className="text-gray-300 text-sm">FORMA DE PAGAMENTO</p>
-              <p className="font-bold text-lg uppercase">{pedidoAtual.formaPagamento}</p>
-              {pedidoAtual.formaPagamento === "dinheiro" && (
-                <div className="mt-2 text-sm">
-                  <p>Valor pago: R$ {pedidoAtual.valorPago?.toFixed(2)}</p>
-                  {pedidoAtual.troco && pedidoAtual.troco > 0 ? (
-                    <p className="text-yellow-400">Troco: R$ {pedidoAtual.troco.toFixed(2)}</p>
-                  ) : (
-                    <p className="text-green-400">Não precisa de troco</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Botões */}
-          <div className="mt-6 space-y-3">
-            <Button
-              onClick={compartilharComprovante}
-              disabled={capturandoImagem}
-              className="w-full bg-green-600 hover:bg-green-700 text-white text-lg py-4 rounded-xl font-bold shadow-lg hover-lift"
-            >
-              {capturandoImagem ? (
-                <>
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
-                  Preparando...
-                </>
-              ) : (
-                <>
-                  <Share className="w-6 h-6 mr-3" />
-                  Enviar para WhatsApp
-                </>
-              )}
-            </Button>
-
-            <Button
-              onClick={salvarComprovante}
-              disabled={capturandoImagem}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-lg py-4 rounded-xl font-bold shadow-lg hover-lift"
-            >
-              {capturandoImagem ? (
-                <>
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
-                  Salvando...
-                </>
-              ) : (
-                <>
-                  <Download className="w-6 h-6 mr-3" />
-                  Salvar Comprovante
-                </>
-              )}
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={() => {
-                setCarrinho([])
-                setValorPago("")
-                setFormaPagamento("pix")
-                setPedidoAtual(null)
-                setTelaAtual("inicio")
-              }}
-              className="w-full border-gray-400 text-gray-700 hover:bg-gray-100 hover-lift"
-            >
-              Fazer Novo Pedido
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // TELA DE PAGAMENTO
-  if (telaAtual === "pagamento") {
-    const calcularTaxaEntrega = () => {
-      if (tipoEntrega === "retirada") return 0
-      return TAXA_ENTREGA
-    }
-
-    const podeEntrega = totalCarrinho >= PEDIDO_MINIMO_ENTREGA
-
-    const totalComEntrega = totalCarrinho + calcularTaxaEntrega()
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 animate-fadeInUp">
-        <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white shadow-lg">
-          <div className="flex items-center justify-between max-w-4xl mx-auto">
-            <Button
-              variant="ghost"
-              onClick={() => setTelaAtual("carrinho")}
-              className="text-white hover:bg-white/20 font-semibold hover-lift"
-            >
-              ← Voltar ao Carrinho
-            </Button>
-            <h1 className="text-xl md:text-2xl font-bold">💳 Pagamento</h1>
-            <div className="w-20 md:w-32"></div>
-          </div>
-        </div>
-
-        <div className="max-w-md mx-auto p-4 space-y-6">
-          {/* Resumo do Pedido */}
-          <Card className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift">
-            <CardHeader>
-              <CardTitle className="text-center text-lg">📋 Resumo do Pedido</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {carrinho.map((item) => (
-                  <div key={item.bebida.id} className="flex justify-between text-sm">
-                    <span>
-                      {item.quantidade}x {item.bebida.nome}
-                    </span>
-                    <span>R$ {(item.bebida.preco * item.quantidade).toFixed(2)}</span>
-                  </div>
-                ))}
-                {tipoEntrega === "entrega" && (
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>Taxa de entrega</span>
-                    <span>R$ {TAXA_ENTREGA.toFixed(2)}</span>
-                  </div>
-                )}
-                {tipoEntrega === "retirada" && (
-                  <div className="flex justify-between text-sm text-green-600">
-                    <span>Retirada no local</span>
-                    <span>R$ 0,00</span>
-                  </div>
-                )}
-                <hr className="my-3" />
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total:</span>
-                  <span className="text-green-600">R$ {totalComEntrega.toFixed(2)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Tipo de Entrega */}
-          <Card className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift">
-            <CardHeader>
-              <CardTitle className="text-lg">🚚 Tipo de Entrega</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {/* Retirada no Local */}
-                <div
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-300 hover-lift ${
-                    tipoEntrega === "retirada"
-                      ? "border-blue-500 bg-blue-50 scale-105"
-                      : "border-gray-200 hover:border-blue-300"
-                  }`}
-                  onClick={() => setTipoEntrega("retirada")}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-6 h-6 text-blue-600">🏪</div>
-                    <div>
-                      <p className="font-semibold">Retirada no Local</p>
-                      <p className="text-sm text-gray-600">Sem taxa de entrega</p>
-                    </div>
-                    {tipoEntrega === "retirada" && <div className="ml-auto w-4 h-4 bg-blue-500 rounded-full"></div>}
-                  </div>
-                </div>
-
-                {/* Entrega - com validação de pedido mínimo */}
-                <div
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-300 hover-lift ${
-                    !podeEntrega
-                      ? "border-gray-300 bg-gray-100 cursor-not-allowed opacity-60"
-                      : tipoEntrega === "entrega"
-                        ? "border-orange-500 bg-orange-50 scale-105"
-                        : "border-gray-200 hover:border-orange-300"
-                  }`}
-                  onClick={() => podeEntrega && setTipoEntrega("entrega")}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-6 h-6 text-orange-600">🚚</div>
-                    <div>
-                      <p className={`font-semibold ${!podeEntrega ? "text-gray-500" : ""}`}>
-                        Entrega {!podeEntrega ? "(Indisponível)" : ""}
-                      </p>
-                      {!podeEntrega ? (
-                        <div className="text-sm text-gray-500">
-                          <p className="font-medium text-red-600">Entrega disponível a partir de R$ 20,00</p>
-                          <p>Seu pedido: R$ {totalCarrinho.toFixed(2)}</p>
-                          <p className="font-semibold text-orange-600">
-                            Faltam: R$ {(PEDIDO_MINIMO_ENTREGA - totalCarrinho).toFixed(2)}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-gray-600">Taxa: R$ {TAXA_ENTREGA.toFixed(2)}</p>
-                      )}
-                    </div>
-                    {tipoEntrega === "entrega" && podeEntrega && (
-                      <div className="ml-auto w-4 h-4 bg-orange-500 rounded-full"></div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Campo de Endereço para Entrega */}
-                {tipoEntrega === "entrega" && (
-                  <div className="mt-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
-                    <Label htmlFor="enderecoEntrega">Endereço para Entrega (opcional)</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => obterLocalizacaoAtual()}
-                      className="text-xs px-2 py-1 h-auto bg-transparent"
-                    >
-                      <MapPin className="w-3 h-3 mr-1" />📍 Capturar Localização
-                    </Button>
-                    <Textarea
-                      id="enderecoEntrega"
-                      value={enderecoEntrega}
-                      onChange={(e) => setEnderecoEntrega(e.target.value)}
-                      placeholder="Digite seu endereço completo (rua, número, bairro, cidade)"
-                      rows={3}
-                      className="mt-2"
-                    />
-                    {localizacaoAtual && (
-                      <div className="mt-2 p-2 bg-green-100 rounded text-green-800 text-xs">
-                        ✅ Localização capturada automaticamente
-                        <br />
-                        <span className="text-blue-600">{localizacaoAtual}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Forma de Pagamento */}
-          <Card className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift">
-            <CardHeader>
-              <CardTitle className="text-lg">💳 Forma de Pagamento</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {/* PIX */}
-                <div
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-300 hover-lift ${
-                    formaPagamento === "pix"
-                      ? "border-green-500 bg-green-50 scale-105"
-                      : "border-gray-200 hover:border-green-300"
-                  }`}
-                  onClick={() => setFormaPagamento("pix")}
-                >
-                  <div className="flex items-center space-x-3">
-                    <Smartphone className="w-6 h-6 text-green-600" />
-                    <div>
-                      <p className="font-semibold">PIX</p>
-                      <p className="text-sm text-gray-600">Pagamento instantâneo</p>
-                    </div>
-                    {formaPagamento === "pix" && <div className="ml-auto w-4 h-4 bg-green-500 rounded-full"></div>}
-                  </div>
-                </div>
-
-                {/* Campo para chave PIX - COMPACTO */}
-                {formaPagamento === "pix" && (
-                  <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
-                    {/* Informações do PIX - Compactas */}
-                    <div className="bg-white rounded-lg border border-green-300 p-3 mb-3">
-                      <div className="text-center mb-3">
-                        <div className="flex items-center justify-center space-x-2 mb-2">
-                          <Smartphone className="w-4 h-4 text-green-600" />
-                          <span className="text-sm font-semibold text-green-800">Dados para PIX</span>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div>
-                            <p className="text-xs text-gray-600">Chave PIX:</p>
-                            <p className="font-mono text-base font-bold text-gray-800">{CHAVE_PIX}</p>
-                          </div>
-
-                          <div>
-                            <p className="text-xs text-gray-600">Nome:</p>
-                            <p className="text-sm font-semibold text-gray-800">{NOME_PIX}</p>
-                          </div>
-
-                          <div>
-                            <p className="text-xs text-gray-600">Banco:</p>
-                            <p className="text-sm font-medium text-gray-700">{BANCO_PIX}</p>
-                          </div>
-                        </div>
-
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            navigator.clipboard.writeText(CHAVE_PIX)
-                            addToast({
-                              type: "success",
-                              title: "Chave PIX copiada!",
-                              description: "Cole no seu aplicativo do banco para fazer o pagamento",
-                            })
-                          }}
-                          className="mt-3 px-4 py-2 bg-green-100 border-green-300 text-green-700 hover:bg-green-200 text-sm w-full"
-                        >
-                          📋 Copiar Chave PIX
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Valor a ser pago */}
-                    <div className="bg-blue-50 rounded-lg border border-blue-200 p-2 mb-3">
-                      <div className="text-center">
-                        <p className="text-xs text-blue-700">💰 Valor a pagar:</p>
-                        <p className="text-xl font-bold text-blue-800">R$ {totalComEntrega.toFixed(2)}</p>
-                      </div>
-                    </div>
-
-                    {/* Instruções compactas */}
-                    <div className="bg-blue-100 rounded-lg p-2">
-                      <div className="flex items-start space-x-2">
-                        <div className="text-blue-600 mt-0.5 text-sm">💡</div>
-                        <div className="text-blue-800 text-xs">
-                          <p className="font-semibold mb-1">Como pagar:</p>
-                          <p>
-                            1. Copie a chave PIX • 2. Abra seu banco • 3. PIX → Pagar • 4. Cole a chave • 5. Digite o
-                            valor • 6. Confirme
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Cartão */}
-                <div
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-300 hover-lift ${
-                    formaPagamento === "cartao"
-                      ? "border-blue-500 bg-blue-50 scale-105"
-                      : "border-gray-200 hover:border-blue-300"
-                  }`}
-                  onClick={() => setFormaPagamento("cartao")}
-                >
-                  <div className="flex items-center space-x-3">
-                    <CreditCard className="w-6 h-6 text-blue-600" />
-                    <div>
-                      <p className="font-semibold">Cartão</p>
-                      <p className="text-sm text-gray-600">Débito ou Crédito</p>
-                    </div>
-                    {formaPagamento === "cartao" && <div className="ml-auto w-4 h-4 bg-blue-500 rounded-full"></div>}
-                  </div>
-                </div>
-
-                {/* Dinheiro */}
-                <div
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-300 hover-lift ${
-                    formaPagamento === "dinheiro"
-                      ? "border-yellow-500 bg-yellow-50 scale-105"
-                      : "border-gray-200 hover:border-yellow-300"
-                  }`}
-                  onClick={() => setFormaPagamento("dinheiro")}
-                >
-                  <div className="flex items-center space-x-3">
-                    <Banknote className="w-6 h-6 text-yellow-600" />
-                    <div>
-                      <p className="font-semibold">Dinheiro</p>
-                      <p className="text-sm text-gray-600">Pagamento em espécie</p>
-                    </div>
-                    {formaPagamento === "dinheiro" && (
-                      <div className="ml-auto w-4 h-4 bg-yellow-500 rounded-full"></div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Campo para valor pago em dinheiro */}
-                {formaPagamento === "dinheiro" && (
-                  <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                    <Label htmlFor="valorPago">Valor que você vai pagar *</Label>
-                    <Input
-                      id="valorPago"
-                      type="number"
-                      step="0.01"
-                      placeholder={`Mínimo: R$ ${totalComEntrega.toFixed(2)}`}
-                      value={valorPago}
-                      onChange={(e) => setValorPago(e.target.value)}
-                      className="mt-2"
-                    />
-                    {valorPago && Number.parseFloat(valorPago) >= totalComEntrega && (
-                      <div className="mt-2 p-2 bg-green-100 rounded text-green-800 text-sm">
-                        {calcularTroco() > 0 ? (
-                          <p>💰 Troco: R$ {calcularTroco().toFixed(2)}</p>
-                        ) : (
-                          <p>✅ Não precisa de troco</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Botão Finalizar */}
-          <Button
-            onClick={finalizarPedido}
-            disabled={
-              carregando ||
-              (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComEntrega))
-            }
-            className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-xl py-6 rounded-xl font-bold shadow-lg hover-lift"
-          >
-            {carregando ? (
-              <>
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
-                Processando...
-              </>
-            ) : (
-              <>🎉 {modoTeste ? "🧪 Finalizar (Teste)" : "Finalizar Pedido"}</>
-            )}
-          </Button>
-        </div>
-
-        {/* Rodapé */}
-        <Rodape />
-      </div>
-    )
-  }
-
-  // TELA DO CARRINHO - LAYOUT CORRIGIDO PARA NOMES LONGOS
-  if (telaAtual === "carrinho") {
-    const calcularTaxaEntrega = () => {
-      if (tipoEntrega === "retirada") return 0
-      if (totalCarrinho >= PEDIDO_MINIMO_ENTREGA) return 0
-      return TAXA_ENTREGA
-    }
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 animate-fadeInUp flex flex-col">
-        <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-3 text-white shadow-lg">
-          <div className="flex items-center justify-between max-w-4xl mx-auto">
-            <Button
-              variant="ghost"
-              onClick={() => setTelaAtual("cardapio")}
-              className="text-white hover:bg-white/20 font-medium hover-lift text-sm px-3 py-2"
-            >
-              ← Voltar
-            </Button>
-            <h1 className="text-lg md:text-xl font-bold">🛒 Meu Carrinho</h1>
-            <div className="w-16 md:w-20"></div>
-          </div>
-        </div>
-
-        <div className="flex-1 max-w-4xl mx-auto p-3 space-y-3">
-          {carrinho.length === 0 ? (
-            <div className="text-center py-16 animate-fadeInScale">
-              <div className="bg-gradient-to-br from-orange-100 to-yellow-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 animate-bounce-custom">
-                <ShoppingCart className="w-10 h-10 text-orange-500" />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-700 mb-2">Carrinho vazio</h2>
-              <p className="text-gray-500 mb-6 text-sm">Que tal adicionar algumas bebidas geladas?</p>
-              <Button
-                onClick={() => setTelaAtual("cardapio")}
-                className="bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold px-6 py-3 rounded-xl hover-lift animate-pulse-custom"
-              >
-                🍻 Ver Cardápio
-              </Button>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-3">
-                {carrinho.map((item, index) => (
-                  <Card
-                    key={item.bebida.id}
-                    className="shadow-lg border-0 bg-gradient-to-r from-white to-orange-50 hover-lift transition-all duration-300 hover:shadow-xl animate-fadeInUp"
-                    style={{ animationDelay: `${index * 0.1}s` }}
-                  >
-                    <CardContent className="p-4">
-                      {/* Layout Mobile Otimizado - CORRIGIDO PARA NOMES LONGOS */}
-                      <div className="space-y-3">
-                        {/* Linha 1: Imagem + Info Principal */}
-                        <div className="flex items-start space-x-3">
-                          <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 animate-fadeInScale">
-                            <Image
-                              src={item.bebida.imagem || "/placeholder.svg"}
-                              alt={item.bebida.nome}
-                              width={64}
-                              height={64}
-                              className="w-full h-full object-cover transition-transform duration-300 hover:scale-110"
-                            />
-                          </div>
-                          <div className="flex-1 min-w-0 space-y-2">
-                            {/* Nome do produto - QUEBRA DE LINHA CORRIGIDA */}
-                            <h3 className="font-bold text-sm leading-tight text-gray-800 break-words">
-                              {item.bebida.nome}
-                            </h3>
-
-                            {/* Preço e categoria em linha separada */}
-                            <div className="flex items-center justify-between">
-                              <span className="text-lg font-bold text-green-600">
-                                R$ {item.bebida.preco.toFixed(2)}
-                              </span>
-                              {item.bebida.categoria && (
-                                <Badge
-                                  className={`text-xs px-2 py-1 ${getCorCategoria(item.bebida.categoria.cor).classeBg} ${getCorCategoria(item.bebida.categoria.cor).classeTexto} animate-slideInRight`}
-                                >
-                                  {item.bebida.categoria.nome}
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Linha 2: Controles de Quantidade e Subtotal */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3 bg-gray-50 rounded-lg p-2 animate-slideInLeft">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => removerDoCarrinho(item.bebida.id)}
-                              className="h-8 w-8 p-0 border-orange-300 hover:bg-orange-100 hover-lift transition-all duration-200"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </Button>
-                            <span className="font-bold text-lg w-8 text-center animate-pulse">{item.quantidade}</span>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => adicionarAoCarrinho(item.bebida)}
-                              disabled={item.quantidade >= item.bebida.estoque}
-                              className="h-8 w-8 p-0 border-orange-300 hover:bg-orange-100 hover-lift transition-all duration-200"
-                            >
-                              <Plus className="w-4 h-4" />
-                            </Button>
-                          </div>
-
-                          {/* Subtotal do Item */}
-                          <div className="text-right animate-slideInRight">
-                            <span className="text-lg font-bold text-orange-600">
-                              R$ {(item.bebida.preco * item.quantidade).toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-
-              {/* Card do Total */}
-              <Card className="bg-gradient-to-r from-green-50 to-yellow-50 border-2 border-green-300 shadow-xl hover-lift animate-fadeInScale">
-                <CardContent className="p-6">
-                  <div className="text-center mb-4">
-                    <h3 className="text-xl font-bold text-gray-800 mb-2 animate-bounce">💰 Total do Pedido</h3>
-                    <div className="space-y-1 mb-2 animate-fadeInUp">
-                      <div className="text-base text-gray-600">Subtotal: R$ {subtotalItens.toFixed(2)}</div>
-                      <div className="text-base text-gray-600">
-                        Taxa de entrega: R$ {calcularTaxaEntrega().toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="text-3xl font-bold text-green-600 mb-2 animate-pulse-custom">
-                      R$ {(totalCarrinho + calcularTaxaEntrega()).toFixed(2)}
-                    </div>
-                    <p className="text-gray-600 text-sm">
-                      {totalItens} {totalItens === 1 ? "item" : "itens"} selecionados
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => setTelaAtual("pagamento")}
-                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-lg py-4 rounded-xl font-bold shadow-lg hover-lift animate-glow transition-all duration-300"
-                  >
-                    💳 Continuar para Pagamento
-                  </Button>
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </div>
-
-        {/* Rodapé */}
-        <Rodape />
-      </div>
-    )
-  }
-
-  // TELA INICIAL - COM ANIMAÇÕES MELHORADAS
+  // TELA INICIAL - SEM BADGE DE DEMONSTRAÇÃO
   if (telaAtual === "inicio") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-400 via-orange-500 to-yellow-500 flex flex-col overflow-hidden">
-        {/* Elementos flutuantes de fundo - ANIMAÇÕES MELHORADAS */}
+        {/* Elementos flutuantes de fundo */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-10 left-10 w-20 h-20 bg-white/10 rounded-full animate-float-1"></div>
           <div className="absolute top-32 right-16 w-16 h-16 bg-white/5 rounded-full animate-float-2"></div>
@@ -2911,20 +1546,6 @@ function BebidasOnAppContent() {
           <div className="absolute bottom-20 right-32 w-24 h-24 bg-white/5 rounded-full animate-float-4"></div>
           <div className="absolute top-1/2 left-8 w-8 h-8 bg-white/10 rounded-full animate-float-5"></div>
           <div className="absolute top-1/3 right-8 w-14 h-14 bg-white/5 rounded-full animate-float-6"></div>
-
-          {/* Elementos extras para mais movimento */}
-          <div
-            className="absolute top-1/4 left-1/3 w-6 h-6 bg-yellow-300/20 rounded-full animate-float-1"
-            style={{ animationDelay: "3s" }}
-          ></div>
-          <div
-            className="absolute bottom-1/4 right-1/3 w-10 h-10 bg-orange-300/15 rounded-full animate-float-2"
-            style={{ animationDelay: "3.5s" }}
-          ></div>
-          <div
-            className="absolute top-3/4 left-1/4 w-18 h-18 bg-white/8 rounded-full animate-float-3"
-            style={{ animationDelay: "4s" }}
-          ></div>
         </div>
 
         <div className="flex-1 flex items-center justify-center p-4 relative z-10">
@@ -2948,12 +1569,9 @@ function BebidasOnAppContent() {
                 <p className="text-xl font-bold mb-2">🚚 DELIVERY PREMIUM</p>
               </div>
               <p className="text-white/90 text-lg font-medium animate-slideInUp">Buzinou, chegou! 📱</p>
-              {modoTeste && (
-                <Badge className="mt-3 bg-yellow-500 text-black text-sm animate-bounce">🧪 MODO DEMONSTRAÇÃO</Badge>
-              )}
+              {modoTeste && <Badge className="mt-3 bg-yellow-500 text-black text-sm animate-bounce">🧪 DEMO</Badge>}
             </div>
 
-            {/* Substituir a seção atual dos cards de benefícios e informação de entrega por: */}
             <div className="space-y-4 animate-fadeInUp" style={{ animationDelay: "0.3s" }}>
               <Button
                 onClick={() => setTelaAtual("cardapio")}
@@ -3010,6 +1628,1030 @@ function BebidasOnAppContent() {
   }
 
   // TELA DO CARDÁPIO (padrão)
+  // TELA DO CARRINHO
+  if (telaAtual === "carrinho") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50">
+        <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white sticky top-0 z-10 shadow-lg">
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <Button
+              variant="ghost"
+              onClick={() => setTelaAtual("cardapio")}
+              className="text-white hover:bg-white/20 font-semibold"
+            >
+              ← Voltar
+            </Button>
+            <h1 className="text-2xl font-bold">Carrinho</h1>
+            <div className="w-20"></div>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto p-4">
+          {carrinho.length === 0 ? (
+            <div className="text-center py-16">
+              <div className="bg-gradient-to-br from-orange-100 to-yellow-100 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-6">
+                <ShoppingCart className="w-12 h-12 text-orange-500" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-700 mb-2">Carrinho vazio</h2>
+              <p className="text-gray-500 mb-6">Adicione algumas bebidas para continuar</p>
+              <Button
+                onClick={() => setTelaAtual("cardapio")}
+                className="bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold px-8 py-3 rounded-xl"
+              >
+                🍻 Ver Cardápio
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Itens do Carrinho */}
+              <div className="space-y-4">
+                {carrinho.map((item) => (
+                  <Card key={item.bebida.id} className="shadow-lg">
+                    <CardContent className="p-4">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100">
+                          <Image
+                            src={item.bebida.imagem || "/placeholder.svg?height=64&width=64&text=Bebida"}
+                            alt={item.bebida.nome}
+                            width={64}
+                            height={64}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-bold text-lg">{item.bebida.nome}</h3>
+                          <p className="text-gray-600">R$ {item.bebida.preco.toFixed(2)} cada</p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removerDoCarrinho(item.bebida.id)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Minus className="w-4 h-4" />
+                          </Button>
+                          <span className="font-bold text-lg w-8 text-center">{item.quantidade}</span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => adicionarAoCarrinho(item.bebida, 1)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-lg text-green-600">
+                            R$ {(item.bebida.preco * item.quantidade).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Resumo do Pedido */}
+              <Card className="shadow-lg bg-gradient-to-r from-green-50 to-blue-50">
+                <CardContent className="p-6">
+                  <h3 className="text-xl font-bold mb-4">Resumo do Pedido</h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Subtotal ({totalItens} itens):</span>
+                      <span className="font-semibold">R$ {subtotalItens.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Taxa de entrega:</span>
+                      <span className="font-semibold">
+                        {tipoEntrega === "entrega" ? `R$ ${TAXA_ENTREGA.toFixed(2)}` : "Grátis"}
+                      </span>
+                    </div>
+                    <div className="border-t pt-2 flex justify-between text-xl font-bold text-green-600">
+                      <span>Total:</span>
+                      <span>R$ {(totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Tipo de Entrega */}
+              <Card className="shadow-lg">
+                <CardContent className="p-6">
+                  <h3 className="text-xl font-bold mb-4">Tipo de Entrega</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button
+                      variant={tipoEntrega === "retirada" ? "default" : "outline"}
+                      onClick={() => setTipoEntrega("retirada")}
+                      className="p-4 h-auto flex flex-col items-center space-y-2"
+                    >
+                      <div className="text-2xl">🏪</div>
+                      <div>
+                        <div className="font-bold">Retirada</div>
+                        <div className="text-sm opacity-70">Grátis</div>
+                      </div>
+                    </Button>
+                    <Button
+                      variant={tipoEntrega === "entrega" ? "default" : "outline"}
+                      onClick={() => setTipoEntrega("entrega")}
+                      className="p-4 h-auto flex flex-col items-center space-y-2"
+                      disabled={totalCarrinho < PEDIDO_MINIMO_ENTREGA}
+                    >
+                      <div className="text-2xl">🚚</div>
+                      <div>
+                        <div className="font-bold">Entrega</div>
+                        <div className="text-sm opacity-70">R$ {TAXA_ENTREGA.toFixed(2)}</div>
+                      </div>
+                    </Button>
+                  </div>
+                  {totalCarrinho < PEDIDO_MINIMO_ENTREGA && (
+                    <p className="text-red-600 text-sm mt-2 text-center">
+                      Pedido mínimo para entrega: R$ {PEDIDO_MINIMO_ENTREGA.toFixed(2)}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Endereço de Entrega */}
+              {tipoEntrega === "entrega" && (
+                <Card className="shadow-lg">
+                  <CardContent className="p-6">
+                    <h3 className="text-xl font-bold mb-4">Endereço de Entrega</h3>
+                    <Input
+                      type="text"
+                      placeholder="Digite seu endereço completo (opcional)..."
+                      value={enderecoEntrega}
+                      onChange={(e) => setEnderecoEntrega(e.target.value)}
+                      className="w-full"
+                    />
+                    <p className="text-sm text-gray-500 mt-2">
+                      💡 Se informar o endereço, enviaremos sua localização junto com o pedido
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Botão Finalizar */}
+              <Button
+                onClick={() => setTelaAtual("pagamento")}
+                disabled={carrinho.length === 0}
+                className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-4 text-lg rounded-xl"
+              >
+                🛒 Finalizar Pedido
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // TELA DE PAGAMENTO
+  if (telaAtual === "pagamento") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50">
+        <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white sticky top-0 z-10 shadow-lg">
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <Button
+              variant="ghost"
+              onClick={() => setTelaAtual("carrinho")}
+              className="text-white hover:bg-white/20 font-semibold"
+            >
+              ← Voltar
+            </Button>
+            <h1 className="text-2xl font-bold">Pagamento</h1>
+            <div className="w-20"></div>
+          </div>
+        </div>
+
+        <div className="max-w-2xl mx-auto p-4 space-y-6">
+          {/* Resumo Final */}
+          <Card className="shadow-lg bg-gradient-to-r from-green-50 to-blue-50">
+            <CardContent className="p-6">
+              <h3 className="text-xl font-bold mb-4">Resumo Final</h3>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span>R$ {subtotalItens.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Entrega:</span>
+                  <span>{tipoEntrega === "entrega" ? `R$ ${TAXA_ENTREGA.toFixed(2)}` : "Grátis"}</span>
+                </div>
+                <div className="border-t pt-2 flex justify-between text-xl font-bold text-green-600">
+                  <span>Total:</span>
+                  <span>R$ {(totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)).toFixed(2)}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Forma de Pagamento */}
+          <Card className="shadow-lg">
+            <CardContent className="p-6">
+              <h3 className="text-xl font-bold mb-4">Forma de Pagamento</h3>
+              <div className="grid grid-cols-3 gap-4">
+                <Button
+                  variant={formaPagamento === "pix" ? "default" : "outline"}
+                  onClick={() => setFormaPagamento("pix")}
+                  className="p-4 h-auto flex flex-col items-center space-y-2"
+                >
+                  <div className="text-2xl">📱</div>
+                  <div className="font-bold">PIX</div>
+                </Button>
+                <Button
+                  variant={formaPagamento === "cartao" ? "default" : "outline"}
+                  onClick={() => setFormaPagamento("cartao")}
+                  className="p-4 h-auto flex flex-col items-center space-y-2"
+                >
+                  <div className="text-2xl">💳</div>
+                  <div className="font-bold">Cartão</div>
+                </Button>
+                <Button
+                  variant={formaPagamento === "dinheiro" ? "default" : "outline"}
+                  onClick={() => setFormaPagamento("dinheiro")}
+                  className="p-4 h-auto flex flex-col items-center space-y-2"
+                >
+                  <div className="text-2xl">💵</div>
+                  <div className="font-bold">Dinheiro</div>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Valor Pago (apenas para dinheiro) */}
+          {formaPagamento === "dinheiro" && (
+            <Card className="shadow-lg border-orange-200">
+              <CardContent className="p-6">
+                <h3 className="text-xl font-bold mb-4 text-orange-800">💵 Dinheiro</h3>
+                <p className="text-sm text-gray-600 mb-2">Pagamento na entrega</p>
+
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Valor que você vai pagar:</label>
+                  <Input
+                    type="number"
+                    placeholder={`Mínimo: R$ ${(totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)).toFixed(2)}`}
+                    value={valorPago}
+                    onChange={(e) => setValorPago(e.target.value)}
+                    className="w-full text-lg border-yellow-300 focus:border-yellow-500"
+                    step="0.01"
+                    min={(totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)).toFixed(2)}
+                  />
+                </div>
+
+                {valorPago && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-lg">
+                        <span>Total do pedido:</span>
+                        <span className="font-bold">
+                          R$ {(totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-lg">
+                        <span>Valor que você vai pagar:</span>
+                        <span className="font-bold">R$ {Number.parseFloat(valorPago || "0").toFixed(2)}</span>
+                      </div>
+                      <div className="border-t pt-2 mt-2">
+                        <div className="flex justify-between text-xl font-bold">
+                          <span>Troco:</span>
+                          <span className={calcularTroco() >= 0 ? "text-green-600" : "text-red-600"}>
+                            {calcularTroco() === 0
+                              ? "✅ Não precisa de troco"
+                              : calcularTroco() > 0
+                                ? `R$ ${calcularTroco().toFixed(2)}`
+                                : `❌ Falta R$ ${Math.abs(calcularTroco()).toFixed(2)}`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Dados PIX */}
+          {formaPagamento === "pix" && (
+            <Card className="shadow-lg bg-green-50 border-green-200">
+              <CardContent className="p-6">
+                <h3 className="text-xl font-bold mb-4 text-green-800 flex items-center">📱 Dados PIX</h3>
+                <div className="bg-white border-2 border-green-300 rounded-lg p-4 mb-4">
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <span className="font-semibold text-gray-600">Chave PIX:</span>
+                      <div className="font-bold text-lg text-green-700">{CHAVE_PIX}</div>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-gray-600">Nome:</span>
+                      <div className="font-semibold text-gray-800">{NOME_PIX}</div>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-gray-600">Banco:</span>
+                      <div className="font-semibold text-gray-800">{BANCO_PIX}</div>
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => {
+                    navigator.clipboard.writeText(CHAVE_PIX)
+                    addToast({
+                      type: "success",
+                      title: "Chave PIX copiada!",
+                      description: "A chave PIX foi copiada para a área de transferência",
+                    })
+                  }}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg mb-3"
+                >
+                  📋 Copiar Chave PIX
+                </Button>
+                <p className="text-center text-sm text-gray-600">
+                  Após fazer o PIX, envie o comprovante junto com o pedido
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Botão Finalizar */}
+          <Button
+            onClick={finalizarPedido}
+            disabled={carregando || (formaPagamento === "dinheiro" && calcularTroco() < 0)}
+            className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-4 text-lg rounded-xl"
+          >
+            {carregando ? "Processando..." : "🚀 Confirmar Pedido"}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // TELA DO COMPROVANTE
+  if (telaAtual === "comprovante" && pedidoAtual) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-800 to-gray-900 text-white">
+        <div className="bg-gradient-to-r from-green-600 to-blue-600 p-4 text-white sticky top-0 z-10 shadow-lg">
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <Button
+              variant="ghost"
+              onClick={() => setTelaAtual("inicio")}
+              className="text-white hover:bg-white/20 font-semibold"
+            >
+              ← Início
+            </Button>
+            <h1 className="text-2xl font-bold">Comprovante</h1>
+            <div className="w-20"></div>
+          </div>
+        </div>
+
+        <div className="max-w-2xl mx-auto p-4">
+          <div ref={comprovanteRef} className="bg-white text-black rounded-lg shadow-2xl p-6 space-y-6">
+            {/* Cabeçalho */}
+            <div className="text-center border-b pb-4">
+              <div className="w-16 h-16 mx-auto rounded-full overflow-hidden mb-4">
+                <Image
+                  src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
+                  alt="Logo"
+                  width={64}
+                  height={64}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <h2 className="text-2xl font-bold text-orange-600">BEBIDAS ON</h2>
+              <p className="text-gray-600">Delivery Premium</p>
+              <p className="text-sm text-gray-500">{TELEFONE_DISPLAY}</p>
+            </div>
+
+            {/* Dados do Pedido */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold">Dados do Pedido</h3>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="font-semibold">Pedido:</span> #{pedidoAtual.id}
+                </div>
+                <div>
+                  <span className="font-semibold">Data:</span> {pedidoAtual.data}
+                </div>
+                <div>
+                  <span className="font-semibold">Cliente:</span> {pedidoAtual.cliente}
+                </div>
+                <div>
+                  <span className="font-semibold">Tipo:</span>{" "}
+                  {pedidoAtual.tipoEntrega === "entrega" ? "🚚 Entrega" : "🏪 Retirada"}
+                </div>
+              </div>
+              {pedidoAtual.enderecoEntrega && (
+                <div className="text-sm">
+                  <span className="font-semibold">Endereço:</span> {pedidoAtual.enderecoEntrega}
+                </div>
+              )}
+            </div>
+
+            {/* Itens */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold">Itens do Pedido</h3>
+              <div className="space-y-2">
+                {pedidoAtual.itens.map((item, index) => (
+                  <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100">
+                    <div>
+                      <div className="font-semibold">
+                        {item.quantidade}x {item.bebida.nome}
+                      </div>
+                      <div className="text-sm text-gray-600">R$ {item.bebida.preco.toFixed(2)} cada</div>
+                    </div>
+                    <div className="font-bold">R$ {(item.bebida.preco * item.quantidade).toFixed(2)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Totais */}
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex justify-between">
+                <span>Subtotal:</span>
+                <span>R$ {subtotalItens.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Taxa de entrega:</span>
+                <span>{pedidoAtual.tipoEntrega === "entrega" ? `R$ ${TAXA_ENTREGA.toFixed(2)}` : "R$ 0,00"}</span>
+              </div>
+              <div className="flex justify-between text-xl font-bold text-green-600 border-t pt-2">
+                <span>Total:</span>
+                <span>R$ {pedidoAtual.total.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Pagamento */}
+            <div className="space-y-2 border-t pt-4">
+              <h3 className="text-lg font-bold">Pagamento</h3>
+              <div className="flex justify-between">
+                <span>Forma:</span>
+                <span className="font-semibold">{pedidoAtual.formaPagamento.toUpperCase()}</span>
+              </div>
+              {pedidoAtual.formaPagamento === "dinheiro" && (
+                <>
+                  <div className="flex justify-between">
+                    <span>Valor pago:</span>
+                    <span>R$ {pedidoAtual.valorPago?.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Troco:</span>
+                    <span>R$ {(pedidoAtual.troco || 0).toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Status */}
+            <div className="text-center bg-yellow-100 p-4 rounded-lg">
+              <p className="font-bold text-yellow-800">⏰ Aguardando confirmação</p>
+              <p className="text-sm text-yellow-700">Seu pedido foi enviado via WhatsApp</p>
+            </div>
+          </div>
+
+          {/* Botões */}
+          <div className="mt-6 space-y-4">
+            <Button
+              onClick={compartilharComprovante}
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 text-lg rounded-xl"
+            >
+              📱 Enviar para WhatsApp
+            </Button>
+            <Button
+              onClick={salvarComprovante}
+              disabled={capturandoImagem}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl"
+            >
+              {capturandoImagem ? "Salvando..." : "💾 Salvar Comprovante"}
+            </Button>
+            <Button
+              onClick={() => {
+                setCarrinho([])
+                setEnderecoEntrega("")
+                setValorPago("")
+                setFormaPagamento("pix")
+                setTipoEntrega("retirada")
+                setPedidoAtual(null)
+                setTelaAtual("inicio")
+              }}
+              variant="outline"
+              className="w-full border-white text-white hover:bg-white hover:text-black py-3 rounded-xl"
+            >
+              🏠 Voltar ao Início
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // TELA ADMIN
+  if (telaAtual === "admin") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-4 text-white sticky top-0 z-10 shadow-lg">
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <Button
+              variant="ghost"
+              onClick={() => setTelaAtual("inicio")}
+              className="text-white hover:bg-white/20 font-semibold"
+            >
+              ← Sair Admin
+            </Button>
+            <h1 className="text-2xl font-bold">🔐 Painel Administrativo</h1>
+            <div className="flex items-center space-x-2">
+              {modoTeste && <Badge className="bg-yellow-500 text-black">🧪 TESTE</Badge>}
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-6xl mx-auto p-4">
+          {/* Dashboard Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <Card className="shadow-lg bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+              <CardContent className="p-6 text-center">
+                <div className="text-3xl mb-2">📦</div>
+                <h3 className="text-lg font-bold text-blue-800">Produtos</h3>
+                <p className="text-3xl font-bold text-blue-600">{bebidas.length}</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-lg bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+              <CardContent className="p-6 text-center">
+                <div className="text-3xl mb-2">🏷️</div>
+                <h3 className="text-lg font-bold text-purple-800">Categorias</h3>
+                <p className="text-3xl font-bold text-purple-600">{categorias.length}</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-lg bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+              <CardContent className="p-6 text-center">
+                <div className="text-3xl mb-2">📋</div>
+                <h3 className="text-lg font-bold text-green-800">Pedidos</h3>
+                <p className="text-3xl font-bold text-green-600">{pedidos.length}</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-lg bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200">
+              <CardContent className="p-6 text-center">
+                <div className="text-3xl mb-2">💰</div>
+                <h3 className="text-lg font-bold text-yellow-800">Vendas Totais</h3>
+                <p className="text-2xl font-bold text-yellow-600">
+                  R$ {pedidos.reduce((total, pedido) => total + pedido.total, 0).toFixed(2)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Navigation Tabs */}
+          <div className="flex space-x-1 mb-6 bg-white rounded-lg p-1 shadow-lg">
+            <Button
+              variant={abaAdmin === "categorias" ? "default" : "ghost"}
+              onClick={() => setAbaAdmin("categorias")}
+              className="flex-1"
+            >
+              🏷️ Categorias
+            </Button>
+            <Button
+              variant={abaAdmin === "produtos" ? "default" : "ghost"}
+              onClick={() => setAbaAdmin("produtos")}
+              className="flex-1"
+            >
+              📦 Produtos
+            </Button>
+            <Button
+              variant={abaAdmin === "pedidos" ? "default" : "ghost"}
+              onClick={() => setAbaAdmin("pedidos")}
+              className="flex-1"
+            >
+              📋 Pedidos
+            </Button>
+          </div>
+
+          {/* ABA CATEGORIAS */}
+          {abaAdmin === "categorias" && (
+            <div className="space-y-6">
+              {/* Gerenciar Categorias Header */}
+              <Card className="shadow-lg bg-gradient-to-r from-orange-50 to-yellow-50">
+                <CardContent className="p-6">
+                  <h2 className="text-2xl font-bold text-orange-800 mb-4">🏷️ Gerenciar Categorias</h2>
+
+                  {/* Adicionar Nova Categoria */}
+                  <div className="bg-white rounded-lg p-4 border-2 border-orange-200 mb-6">
+                    <h3 className="text-lg font-bold mb-4 text-orange-700">➕ Adicionar Nova Categoria</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <Input
+                        placeholder="Nome da Categoria *"
+                        value={novaCategoria.nome}
+                        onChange={(e) => setNovaCategoria({ ...novaCategoria, nome: e.target.value })}
+                        className="border-orange-300 focus:border-orange-500"
+                      />
+                      <Input
+                        placeholder="Descrição (opcional)"
+                        value={novaCategoria.descricao || ""}
+                        onChange={(e) => setNovaCategoria({ ...novaCategoria, descricao: e.target.value })}
+                        className="border-orange-300 focus:border-orange-500"
+                      />
+                      <select
+                        value={novaCategoria.icone}
+                        onChange={(e) => setNovaCategoria({ ...novaCategoria, icone: e.target.value })}
+                        className="px-3 py-2 border border-orange-300 rounded-md focus:border-orange-500"
+                      >
+                        {ICONES_CATEGORIAS.map((icone) => (
+                          <option key={icone.valor} value={icone.valor}>
+                            {icone.nome}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={novaCategoria.cor}
+                        onChange={(e) => setNovaCategoria({ ...novaCategoria, cor: e.target.value })}
+                        className="px-3 py-2 border border-orange-300 rounded-md focus:border-orange-500"
+                      >
+                        {CORES_CATEGORIAS.map((cor) => (
+                          <option key={cor.valor} value={cor.valor}>
+                            {cor.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button
+                      onClick={adicionarNovaCategoria}
+                      disabled={carregando}
+                      className="mt-4 bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      {carregando ? "Salvando..." : "➕ Adicionar Categoria"}
+                    </Button>
+                  </div>
+
+                  {/* Categorias Existentes */}
+                  <div>
+                    <h3 className="text-lg font-bold mb-4 text-gray-700">📂 Categorias Existentes</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {categorias.map((categoria) => {
+                        const IconeComponent = getIconeCategoria(categoria.icone)
+                        const corInfo = getCorCategoria(categoria.cor)
+                        const produtosCount = bebidas.filter((b) => b.categoria_id === categoria.id).length
+
+                        return (
+                          <Card key={categoria.id} className={`shadow-lg ${corInfo.classeBg} border-2`}>
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center space-x-2">
+                                  <div className={`p-2 rounded-full ${corInfo.classe} text-white`}>
+                                    <IconeComponent className="w-5 h-5" />
+                                  </div>
+                                  <div>
+                                    <h4 className={`font-bold ${corInfo.classeTexto}`}>{categoria.nome}</h4>
+                                    <p className="text-sm text-gray-600">{produtosCount} produtos</p>
+                                    <p className="text-xs text-gray-500">ID: {categoria.id}</p>
+                                  </div>
+                                </div>
+                                <div className="flex space-x-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setEditandoCategoria(categoria)}
+                                    className="h-8 w-8 p-0 hover:bg-blue-50"
+                                  >
+                                    ✏️
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => excluirCategoria(categoria.id)}
+                                    className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                                  >
+                                    🗑️
+                                  </Button>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Modal Editar Categoria - CORRIGIDO */}
+              {editandoCategoria && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <Card className="shadow-lg border-2 border-blue-500 bg-blue-50 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                    <CardContent className="p-6">
+                      <h3 className="text-xl font-bold mb-4 text-blue-800">✏️ Editando: {editandoCategoria.nome}</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Input
+                          placeholder="Nome da categoria"
+                          value={editandoCategoria.nome}
+                          onChange={(e) => setEditandoCategoria({ ...editandoCategoria, nome: e.target.value })}
+                          className="border-blue-300 focus:border-blue-500"
+                        />
+                        <select
+                          value={editandoCategoria.icone}
+                          onChange={(e) => setEditandoCategoria({ ...editandoCategoria, icone: e.target.value })}
+                          className="px-3 py-2 border border-blue-300 rounded-md focus:border-blue-500"
+                        >
+                          {ICONES_CATEGORIAS.map((icone) => (
+                            <option key={icone.valor} value={icone.valor}>
+                              {icone.nome}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={editandoCategoria.cor}
+                          onChange={(e) => setEditandoCategoria({ ...editandoCategoria, cor: e.target.value })}
+                          className="px-3 py-2 border border-blue-300 rounded-md focus:border-blue-500"
+                        >
+                          {CORES_CATEGORIAS.map((cor) => (
+                            <option key={cor.valor} value={cor.valor}>
+                              {cor.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex space-x-2 mt-4">
+                        <Button
+                          onClick={editarCategoria}
+                          disabled={carregando}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          {carregando ? "Salvando..." : "💾 Salvar"}
+                        </Button>
+                        <Button variant="outline" onClick={() => setEditandoCategoria(null)}>
+                          ❌ Cancelar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Keep the existing ABA PRODUTOS and ABA PEDIDOS sections unchanged */}
+          {abaAdmin === "produtos" && (
+            <div className="space-y-6">
+              {/* Formulário Novo Produto */}
+              <Card className="shadow-lg">
+                <CardContent className="p-6">
+                  <h3 className="text-xl font-bold mb-4">➕ Novo Produto</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      placeholder="Nome do produto"
+                      value={novoItem.nome}
+                      onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Preço (ex: 4.50)"
+                      type="number"
+                      step="0.01"
+                      value={novoItem.preco}
+                      onChange={(e) => setNovoItem({ ...novoItem, preco: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Descrição"
+                      value={novoItem.descricao}
+                      onChange={(e) => setNovoItem({ ...novoItem, descricao: e.target.value })}
+                    />
+                    <Input
+                      placeholder="Estoque"
+                      type="number"
+                      value={novoItem.estoque}
+                      onChange={(e) => setNovoItem({ ...novoItem, estoque: e.target.value })}
+                    />
+                    <select
+                      value={novoItem.categoria_id}
+                      onChange={(e) => setNovoItem({ ...novoItem, categoria_id: e.target.value })}
+                      className="px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">Selecione uma categoria</option>
+                      {categorias.map((categoria) => (
+                        <option key={categoria.id} value={categoria.id}>
+                          {categoria.nome}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      placeholder="URL da imagem"
+                      value={novoItem.imagem}
+                      onChange={(e) => setNovoItem({ ...novoItem, imagem: e.target.value })}
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="mb-2" />
+                  </div>
+                  <Button
+                    onClick={adicionarNovaBebida}
+                    disabled={carregando}
+                    className="mt-4 bg-green-600 hover:bg-green-700"
+                  >
+                    {carregando ? "Salvando..." : "➕ Adicionar Produto"}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Busca de Produtos */}
+              <Card className="shadow-lg">
+                <CardContent className="p-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <Input
+                      type="text"
+                      placeholder="Buscar produtos..."
+                      value={buscaProdutos}
+                      onChange={(e) => setBuscaProdutos(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Lista de Produtos */}
+              <Card className="shadow-lg">
+                <CardContent className="p-6">
+                  <h3 className="text-xl font-bold mb-4">🍻 Produtos ({produtosFiltrados.length})</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {produtosFiltrados.map((bebida) => (
+                      <div key={bebida.id} className="border rounded-lg p-4 space-y-3">
+                        <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100">
+                          <Image
+                            src={bebida.imagem || "/placeholder.svg?height=128&width=200&text=Bebida"}
+                            alt={bebida.nome}
+                            width={200}
+                            height={128}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-sm">{bebida.nome}</h4>
+                          <p className="text-xs text-gray-600 line-clamp-2">{bebida.descricao}</p>
+                          <div className="flex justify-between items-center mt-2">
+                            <span className="font-bold text-green-600">R$ {bebida.preco.toFixed(2)}</span>
+                            <Badge className={getStatusEstoque(bebida.estoque).cor}>{bebida.estoque}</Badge>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Input
+                            type="number"
+                            value={bebida.estoque}
+                            onChange={(e) => atualizarEstoque(bebida.id, Number.parseInt(e.target.value) || 0)}
+                            className="flex-1 h-8 text-xs"
+                            min="0"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditandoItem(bebida)}
+                            className="h-8 w-8 p-0"
+                          >
+                            ✏️
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => excluirBebida(bebida.id)}
+                            className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                          >
+                            🗑️
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Modal Editar Produto - CORRIGIDO */}
+              {editandoItem && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <Card className="shadow-lg border-2 border-blue-500 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                    <CardContent className="p-6">
+                      <h3 className="text-xl font-bold mb-4">✏️ Editando: {editandoItem.nome}</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input
+                          placeholder="Nome do produto"
+                          value={editandoItem.nome}
+                          onChange={(e) => setEditandoItem({ ...editandoItem, nome: e.target.value })}
+                        />
+                        <Input
+                          placeholder="Preço"
+                          type="number"
+                          step="0.01"
+                          value={editandoItem.preco.toString()}
+                          onChange={(e) =>
+                            setEditandoItem({ ...editandoItem, preco: Number.parseFloat(e.target.value) || 0 })
+                          }
+                        />
+                        <Input
+                          placeholder="Descrição"
+                          value={editandoItem.descricao || ""}
+                          onChange={(e) => setEditandoItem({ ...editandoItem, descricao: e.target.value })}
+                        />
+                        <Input
+                          placeholder="Estoque"
+                          type="number"
+                          value={editandoItem.estoque.toString()}
+                          onChange={(e) =>
+                            setEditandoItem({ ...editandoItem, estoque: Number.parseInt(e.target.value) || 0 })
+                          }
+                        />
+                        <select
+                          value={editandoItem.categoria_id.toString()}
+                          onChange={(e) =>
+                            setEditandoItem({ ...editandoItem, categoria_id: Number.parseInt(e.target.value) })
+                          }
+                          className="px-3 py-2 border border-gray-300 rounded-md"
+                        >
+                          {categorias.map((categoria) => (
+                            <option key={categoria.id} value={categoria.id.toString()}>
+                              {categoria.nome}
+                            </option>
+                          ))}
+                        </select>
+                        <Input
+                          placeholder="URL da imagem"
+                          value={editandoItem.imagem}
+                          onChange={(e) => setEditandoItem({ ...editandoItem, imagem: e.target.value })}
+                        />
+                      </div>
+                      <div className="mt-4">
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="mb-2" />
+                      </div>
+                      <div className="flex space-x-2 mt-4">
+                        <Button onClick={editarBebida} disabled={carregando} className="bg-blue-600 hover:bg-blue-700">
+                          {carregando ? "Salvando..." : "💾 Salvar"}
+                        </Button>
+                        <Button variant="outline" onClick={() => setEditandoItem(null)}>
+                          ❌ Cancelar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ABA PEDIDOS */}
+          {abaAdmin === "pedidos" && (
+            <Card className="shadow-lg">
+              <CardContent className="p-6">
+                <h3 className="text-xl font-bold mb-4">📋 Pedidos Recentes ({pedidos.length})</h3>
+                <div className="space-y-4">
+                  {pedidos.map((pedido) => (
+                    <div key={pedido.id} className="border rounded-lg p-4 space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold">Pedido #{pedido.id}</h4>
+                          <p className="text-sm text-gray-600">{pedido.data}</p>
+                          <p className="text-sm">Cliente: {pedido.cliente}</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-green-600 text-lg">R$ {pedido.total.toFixed(2)}</div>
+                          <Badge className="bg-yellow-500 text-black">{pedido.status}</Badge>
+                        </div>
+                      </div>
+                      <div className="text-sm">
+                        <strong>Tipo:</strong> {pedido.tipoEntrega === "entrega" ? "🚚 Entrega" : "🏪 Retirada"}
+                        {pedido.enderecoEntrega && (
+                          <div>
+                            <strong>Endereço:</strong> {pedido.enderecoEntrega}
+                          </div>
+                        )}
+                        <div>
+                          <strong>Pagamento:</strong> {pedido.formaPagamento.toUpperCase()}
+                        </div>
+                      </div>
+                      <div className="text-sm">
+                        <strong>Itens:</strong>
+                        <ul className="ml-4 mt-1">
+                          {pedido.itens.map((item, index) => (
+                            <li key={index}>
+                              {item.quantidade}x {item.bebida.nome} - R${" "}
+                              {(item.bebida.preco * item.quantidade).toFixed(2)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ))}
+                  {pedidos.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <div className="text-4xl mb-2">📋</div>
+                      <p>Nenhum pedido encontrado</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // TELA DO CARDÁPIO (padrão)
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 flex flex-col">
       <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white sticky top-0 z-10 shadow-lg">
@@ -3017,7 +2659,7 @@ function BebidasOnAppContent() {
           <Button
             variant="ghost"
             onClick={() => setTelaAtual("inicio")}
-            className="text-white hover:bg-white/20 font-semibold hover-lift"
+            className="text-white hover:bg-white/20 font-semib old hover-lift"
           >
             ← Início
           </Button>
