@@ -81,6 +81,9 @@ interface Pedido {
   status: "enviado" | "confirmado" | "entregue"
 }
 
+// Adicionar após as interfaces, antes das funções
+const STORAGE_KEY_LOJA_STATUS = "bebidas_on_loja_aberta"
+
 // Adicionar função para detectar iOS no início do componente, após as interfaces
 const detectarIOS = () => {
   if (typeof window === "undefined") return false
@@ -178,8 +181,17 @@ function BebidasOnAppContent() {
   const [enderecoEntrega, setEnderecoEntrega] = useState("")
   const [localizacaoAtual, setLocalizacaoAtual] = useState("")
   const [quantidadesSelecionadas, setQuantidadesSelecionadas] = useState<{ [key: number]: number }>({})
-  const [modoTeste, setModoTeste] = useState(false) // 🔴 MODO PRODUÇÃO POR PADRÃO
+  const [modoTeste, setModoTeste] = useState(false) // 🔴 SEMPRE PRODUÇÃO - SEM DEMO
   const [buscaProdutos, setBuscaProdutos] = useState("")
+  const [filtroData, setFiltroData] = useState<"todos" | "semana" | "mes" | "ano">("todos")
+  // Modificar o useState inicial da loja para carregar do localStorage
+  const [lojaAberta, setLojaAberta] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_KEY_LOJA_STATUS)
+      return saved !== null ? JSON.parse(saved) : true
+    }
+    return true
+  })
 
   const [novoItem, setNovoItem] = useState({
     nome: "",
@@ -202,23 +214,29 @@ function BebidasOnAppContent() {
 
   const comprovanteRef = useRef<HTMLDivElement>(null)
 
+  const [modalSenhaAberto, setModalSenhaAberto] = useState(false)
+  const [senhaInput, setSenhaInput] = useState("")
+  const [senhaCarregando, setSenhaCarregando] = useState(false)
+  const [carregandoInicial, setCarregandoInicial] = useState(true)
+
   // 💾 CARREGAR DADOS - OTIMIZADO PARA CARREGAMENTO RÁPIDO
   useEffect(() => {
-    carregarDados()
+    const carregarRapido = async () => {
+      setCarregandoInicial(true)
+      await carregarDados()
+      setCarregandoInicial(false)
+    }
+    carregarRapido()
   }, [])
 
   const carregarDados = async () => {
     try {
-      if (modoTeste) {
-        console.log("🧪 Carregando dados de teste...")
-        carregarDadosTeste()
-      } else {
-        console.log("🔄 Carregando dados do Supabase...")
-        // ⚡ CARREGAMENTO PARALELO E INSTANTÂNEO
-        const promises = [carregarCategorias(), carregarBebidas(), carregarPedidos()]
-        await Promise.allSettled(promises) // Usar allSettled para não falhar se um der erro
-        console.log("✅ Dados carregados do Supabase com sucesso!")
-      }
+      // ⚡ CARREGAMENTO PARALELO E INSTANTÂNEO - SEM DELAYS E SEM LOGS
+      const [categoriasResult, bebidasResult, pedidosResult] = await Promise.allSettled([
+        carregarCategorias(),
+        carregarBebidas(),
+        carregarPedidos(),
+      ])
     } catch (error) {
       console.error("❌ Erro crítico ao carregar dados:", error)
       addToast({
@@ -227,147 +245,6 @@ function BebidasOnAppContent() {
         description: "Falha ao inicializar o sistema.",
       })
     }
-  }
-
-  // 🧪 DADOS DE TESTE - MAIS PRODUTOS PARA DEMONSTRAÇÃO
-  const carregarDadosTeste = () => {
-    const categoriasTeste: Categoria[] = [
-      { id: 1, nome: "Cervejas", icone: "beer", cor: "amber", ativo: true },
-      { id: 2, nome: "Refrigerantes", icone: "cup-soda", cor: "blue", ativo: true },
-      { id: 3, nome: "Energéticos", icone: "zap", cor: "green", ativo: true },
-      { id: 4, nome: "Ices", icone: "sparkles", cor: "pink", ativo: true },
-      { id: 5, nome: "Palheiros", icone: "package", cor: "red", ativo: true },
-      { id: 6, nome: "Salgadinhos", icone: "package", cor: "purple", ativo: true },
-      { id: 7, nome: "Sucos", icone: "droplets", cor: "green", ativo: true },
-    ]
-
-    const bebidasTeste: Bebida[] = [
-      // Cervejas
-      {
-        id: 1,
-        nome: "Cerveja Skol Lata 350ml",
-        descricao: "Cerveja gelada tradicional brasileira",
-        preco: 4.5,
-        categoria_id: 1,
-        categoria: categoriasTeste[0],
-        imagem: "/placeholder.svg?height=200&width=300&text=Cerveja+Skol",
-        estoque: 25,
-        ativo: true,
-      },
-      {
-        id: 2,
-        nome: "Heineken Long Neck 330ml",
-        descricao: "Cerveja premium importada",
-        preco: 7.5,
-        categoria_id: 1,
-        categoria: categoriasTeste[0],
-        imagem: "/placeholder.svg?height=200&width=300&text=Heineken",
-        estoque: 12,
-        ativo: true,
-      },
-      {
-        id: 3,
-        nome: "Brahma Duplo Malte 350ml",
-        descricao: "Cerveja encorpada e saborosa",
-        preco: 5.2,
-        categoria_id: 1,
-        categoria: categoriasTeste[0],
-        imagem: "/placeholder.svg?height=200&width=300&text=Brahma",
-        estoque: 18,
-        ativo: true,
-      },
-
-      // Refrigerantes
-      {
-        id: 4,
-        nome: "Coca-Cola 2L",
-        descricao: "Refrigerante de cola tradicional",
-        preco: 8.9,
-        categoria_id: 2,
-        categoria: categoriasTeste[1],
-        imagem: "/placeholder.svg?height=200&width=300&text=Coca+Cola",
-        estoque: 15,
-        ativo: true,
-      },
-      {
-        id: 5,
-        nome: "Guaraná Antarctica 2L",
-        descricao: "Refrigerante de guaraná brasileiro",
-        preco: 7.5,
-        categoria_id: 2,
-        categoria: categoriasTeste[1],
-        imagem: "/placeholder.svg?height=200&width=300&text=Guarana",
-        estoque: 20,
-        ativo: true,
-      },
-
-      // Energéticos
-      {
-        id: 6,
-        nome: "Red Bull 250ml",
-        descricao: "Energético que te dá asas",
-        preco: 12.9,
-        categoria_id: 3,
-        categoria: categoriasTeste[2],
-        imagem: "/placeholder.svg?height=200&width=300&text=Red+Bull",
-        estoque: 8,
-        ativo: true,
-      },
-      {
-        id: 7,
-        nome: "Monster Energy 473ml",
-        descricao: "Energético com sabor intenso",
-        preco: 15.9,
-        categoria_id: 3,
-        categoria: categoriasTeste[2],
-        imagem: "/placeholder.svg?height=200&width=300&text=Monster",
-        estoque: 6,
-        ativo: true,
-      },
-
-      // Ices
-      {
-        id: 8,
-        nome: "Smirnoff Ice 275ml",
-        descricao: "Bebida refrescante com vodka",
-        preco: 8.5,
-        categoria_id: 4,
-        categoria: categoriasTeste[3],
-        imagem: "/placeholder.svg?height=200&width=300&text=Smirnoff+Ice",
-        estoque: 10,
-        ativo: true,
-      },
-
-      // Produto com nome muito longo para testar layout
-      {
-        id: 9,
-        nome: "LICOR BALLENA CHOCOLATE E CARAMELO 750 ML",
-        descricao: "Licor premium sabor chocolate e caramelo",
-        preco: 160.0,
-        categoria_id: 4,
-        categoria: categoriasTeste[3],
-        imagem: "/placeholder.svg?height=200&width=300&text=Licor+Ballena",
-        estoque: 3,
-        ativo: true,
-      },
-
-      // Sucos
-      {
-        id: 10,
-        nome: "Suco Del Valle Laranja 1L",
-        descricao: "Suco natural de laranja",
-        preco: 6.5,
-        categoria_id: 7,
-        categoria: categoriasTeste[6],
-        imagem: "/placeholder.svg?height=200&width=300&text=Del+Valle",
-        estoque: 14,
-        ativo: true,
-      },
-    ]
-
-    setCategorias(categoriasTeste)
-    setBebidas(bebidasTeste)
-    console.log("✅ Dados de teste carregados:", bebidasTeste.length, "bebidas")
   }
 
   // 🆔 GERAR ID ÚNICO SEQUENCIAL - VERSÃO CORRIGIDA PARA EVITAR DUPLICATAS
@@ -466,11 +343,10 @@ function BebidasOnAppContent() {
 
   const carregarCategorias = async () => {
     try {
-      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("nome").limit(50)
+      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("nome").limit(20) // Limitar para carregamento mais rápido
 
       if (error) throw error
       setCategorias(data || [])
-      console.log("✅ Categorias carregadas:", data?.length)
     } catch (error) {
       console.error("❌ Erro ao carregar categorias:", error)
       // Não fazer throw para não quebrar o carregamento
@@ -479,7 +355,7 @@ function BebidasOnAppContent() {
 
   const carregarBebidas = async () => {
     try {
-      // ⚡ CARREGAMENTO OTIMIZADO COM JOIN
+      // ⚡ CARREGAMENTO SUPER OTIMIZADO - PRIORIDADE MÁXIMA
       const { data: bebidasData, error: bebidasError } = await supabase
         .from("bebidas")
         .select(`
@@ -494,7 +370,7 @@ function BebidasOnAppContent() {
       `)
         .eq("ativo", true)
         .order("nome")
-        .limit(100)
+        .limit(50) // Limitar para carregamento mais rápido
 
       if (bebidasError) throw bebidasError
 
@@ -504,7 +380,6 @@ function BebidasOnAppContent() {
       }))
 
       setBebidas(bebidasComCategorias)
-      console.log("✅ Bebidas carregadas:", bebidasComCategorias.length)
     } catch (error) {
       console.error("❌ Erro ao carregar bebidas:", error)
       // Não fazer throw para não quebrar o carregamento
@@ -513,11 +388,7 @@ function BebidasOnAppContent() {
 
   const carregarPedidos = async () => {
     try {
-      const { data, error } = await supabase
-        .from("pedidos")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50)
+      const { data, error } = await supabase.from("pedidos").select("*").order("created_at", { ascending: false })
 
       if (error) throw error
 
@@ -630,6 +501,16 @@ function BebidasOnAppContent() {
 
   const finalizarPedido = async () => {
     console.log("🔄 Iniciando finalização do pedido...")
+
+    // Verificar se a loja está aberta
+    if (!lojaAberta) {
+      addToast({
+        type: "error",
+        title: "🏪 Loja Fechada!",
+        description: "Desculpe, não estamos aceitando pedidos no momento.",
+      })
+      return
+    }
 
     // Validações
     if (carrinho.length === 0) {
@@ -1300,34 +1181,62 @@ function BebidasOnAppContent() {
 
   // 🔐 ACESSO ADMIN - CORRIGIDO COM MODO TESTE SECRETO
   const acessoAdmin = () => {
-    const senha = prompt("🔐 Digite a senha de administrador:")
-    if (senha === "admin123") {
+    setModalSenhaAberto(true)
+    setSenhaInput("")
+  }
+
+  const processarSenha = async () => {
+    if (!senhaInput.trim()) return
+
+    setSenhaCarregando(true)
+
+    // Simular um pequeno delay para a animação
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    if (senhaInput === "admin123") {
       console.log("✅ Acesso admin autorizado")
       setTelaAtual("admin")
-    } else if (senha === "teste123") {
+      setModalSenhaAberto(false)
+      addToast({
+        type: "success",
+        title: "✅ Acesso autorizado!",
+        description: "Bem-vindo ao painel administrativo.",
+      })
+    } else if (senhaInput === "teste123") {
       console.log("🧪 Modo teste ativado")
       setModoTeste(true)
+      setModalSenhaAberto(false)
       addToast({
         type: "info",
         title: "🧪 Modo demonstração ativado!",
         description: "Agora você está no modo de demonstração com dados fictícios.",
       })
-    } else if (senha === "producao123") {
+    } else if (senhaInput === "producao123") {
       console.log("🔴 Modo produção ativado")
       setModoTeste(false)
+      setModalSenhaAberto(false)
       addToast({
         type: "success",
         title: "🔴 Modo produção ativado!",
         description: "Voltando aos dados reais do banco.",
       })
       carregarDados() // Recarregar dados reais
-    } else if (senha !== null) {
+    } else {
       addToast({
         type: "error",
         title: "Senha incorreta!",
         description: "A senha digitada está incorreta.",
       })
     }
+
+    setSenhaCarregando(false)
+    setSenhaInput("")
+  }
+
+  const fecharModalSenha = () => {
+    setModalSenhaAberto(false)
+    setSenhaInput("")
+    setSenhaCarregando(false)
   }
 
   const excluirCategoria = async (id: number) => {
@@ -1491,6 +1400,7 @@ function BebidasOnAppContent() {
 
       setEditandoCategoria(null)
       await carregarCategorias()
+
       addToast({
         type: "success",
         title: "Categoria editada!",
@@ -1501,6 +1411,50 @@ function BebidasOnAppContent() {
         type: "error",
         title: "Erro ao editar categoria",
         description: "Ocorreu um erro ao editar a categoria.",
+      })
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  const alternarStatusLoja = async () => {
+    const novoStatus = !lojaAberta
+
+    if (modoTeste) {
+      setLojaAberta(novoStatus)
+      localStorage.setItem(STORAGE_KEY_LOJA_STATUS, JSON.stringify(novoStatus))
+      addToast({
+        type: "info",
+        title: `🧪 TESTE: Loja ${novoStatus ? "ABERTA" : "FECHADA"}!`,
+        description: "Status alterado e salvo localmente.",
+      })
+      return
+    }
+
+    try {
+      setCarregando(true)
+
+      // Salvar no localStorage
+      localStorage.setItem(STORAGE_KEY_LOJA_STATUS, JSON.stringify(novoStatus))
+
+      // Aqui você pode salvar no Supabase se quiser persistir globalmente
+      // const { error } = await supabase
+      //   .from("configuracoes")
+      //   .upsert({ chave: "loja_aberta", valor: novoStatus })
+
+      setLojaAberta(novoStatus)
+      addToast({
+        type: novoStatus ? "success" : "warning",
+        title: `🏪 Loja ${novoStatus ? "ABERTA" : "FECHADA"}!`,
+        description: novoStatus
+          ? "Clientes podem fazer pedidos normalmente"
+          : "Pedidos foram bloqueados, mas cardápio continua visível",
+      })
+    } catch (error) {
+      addToast({
+        type: "error",
+        title: "Erro ao alterar status",
+        description: "Não foi possível alterar o status da loja.",
       })
     } finally {
       setCarregando(false)
@@ -1533,6 +1487,32 @@ function BebidasOnAppContent() {
       bebida.nome.toLowerCase().includes(buscaProdutos.toLowerCase()) ||
       (bebida.descricao && bebida.descricao.toLowerCase().includes(buscaProdutos.toLowerCase())),
   )
+
+  const filtrarPedidosPorData = (pedidos: Pedido[]) => {
+    if (filtroData === "todos") return pedidos
+
+    const agora = new Date()
+    const dataLimite = new Date()
+
+    switch (filtroData) {
+      case "semana":
+        dataLimite.setDate(agora.getDate() - 7)
+        break
+      case "mes":
+        dataLimite.setMonth(agora.getMonth() - 1)
+        break
+      case "ano":
+        dataLimite.setFullYear(agora.getFullYear() - 1)
+        break
+    }
+
+    return pedidos.filter((pedido) => {
+      const dataPedido = new Date(pedido.data.split(", ")[0].split("/").reverse().join("-"))
+      return dataPedido >= dataLimite
+    })
+  }
+
+  const pedidosFiltrados = filtrarPedidosPorData(pedidos)
 
   // TELA INICIAL - SEM BADGE DE DEMONSTRAÇÃO
   if (telaAtual === "inicio") {
@@ -1572,10 +1552,17 @@ function BebidasOnAppContent() {
               {modoTeste && <Badge className="mt-3 bg-yellow-500 text-black text-sm animate-bounce">🧪 DEMO</Badge>}
             </div>
 
+            {!lojaAberta && (
+              <div className="bg-red-500 text-white p-4 rounded-xl text-center animate-pulse">
+                <h3 className="text-xl font-bold mb-2">🔴 LOJA FECHADA</h3>
+                <p className="text-sm">Não estamos aceitando pedidos no momento</p>
+              </div>
+            )}
+
             <div className="space-y-4 animate-fadeInUp" style={{ animationDelay: "0.3s" }}>
               <Button
                 onClick={() => setTelaAtual("cardapio")}
-                className="w-full bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 text-white text-lg py-6 rounded-2xl font-bold shadow-xl hover-lift animate-glow"
+                className={`w-full text-lg py-6 rounded-2xl font-bold shadow-xl hover-lift animate-glow bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 text-white`}
               >
                 🍻 Ver Cardápio Completo
               </Button>
@@ -1631,20 +1618,66 @@ function BebidasOnAppContent() {
   // TELA DO CARRINHO
   if (telaAtual === "carrinho") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50">
+      <div className="min-h-screen bg-white">
         <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white sticky top-0 z-10 shadow-lg">
           <div className="flex items-center justify-between max-w-6xl mx-auto">
             <Button
               variant="ghost"
-              onClick={() => setTelaAtual("cardapio")}
-              className="text-white hover:bg-white/20 font-semibold"
+              onClick={() => setTelaAtual("inicio")}
+              className="text-white hover:bg-white/20 font-semibold hover-lift"
             >
-              ← Voltar
+              ← Início
             </Button>
-            <h1 className="text-2xl font-bold">Carrinho</h1>
-            <div className="w-20"></div>
+            <div className="flex items-center space-x-3">
+              <div
+                className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/30 cursor-pointer hover-lift animate-logo-suave"
+                onDoubleClick={acessoAdmin}
+              >
+                <Image
+                  src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
+                  alt="Logo"
+                  width={40}
+                  height={40}
+                  className="w-full h-full object-cover animate-float"
+                />
+              </div>
+              <div className="text-center">
+                <h1 className="text-2xl font-bold">Cardápio</h1>
+                {modoTeste && <Badge className="bg-yellow-500 text-black text-xs">🧪 DEMO</Badge>}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => setTelaAtual("carrinho")}
+              className="text-white hover:bg-white/20 relative font-semibold hover-lift"
+              disabled={!lojaAberta}
+            >
+              <ShoppingCart className="w-6 h-6 mr-2" />
+              <span className="hidden sm:inline">Carrinho</span>
+              {totalItens > 0 && (
+                <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[20px] h-5 flex items-center justify-center rounded-full animate-bounce">
+                  {totalItens}
+                </Badge>
+              )}
+            </Button>
           </div>
         </div>
+        {!lojaAberta && (
+          <div className="bg-gradient-to-r from-orange-100 to-yellow-50 border-l-4 border-orange-500 p-4 mx-4 mt-4 rounded-lg shadow-lg animate-pulse">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm">⏰</span>
+                </div>
+              </div>
+              <div className="ml-3">
+                <p className="text-orange-800 font-bold">
+                  Loja Fechada: Não estamos fazendo pedidos no momento. Volte mais tarde!
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="max-w-4xl mx-auto p-4">
           {carrinho.length === 0 ? (
@@ -2148,18 +2181,131 @@ function BebidasOnAppContent() {
   if (telaAtual === "admin") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-4 text-white sticky top-0 z-10 shadow-lg">
-          <div className="flex items-center justify-between max-w-6xl mx-auto">
-            <Button
-              variant="ghost"
-              onClick={() => setTelaAtual("inicio")}
-              className="text-white hover:bg-white/20 font-semibold"
-            >
-              ← Sair Admin
-            </Button>
-            <h1 className="text-2xl font-bold">🔐 Painel Administrativo</h1>
-            <div className="flex items-center space-x-2">
-              {modoTeste && <Badge className="bg-yellow-500 text-black">🧪 TESTE</Badge>}
+        <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-3 sm:p-4 text-white sticky top-0 z-10 shadow-lg">
+          <div className="max-w-6xl mx-auto">
+            {/* Layout Mobile */}
+            <div className="block sm:hidden">
+              <div className="flex items-center justify-between mb-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setTelaAtual("inicio")}
+                  className="text-white hover:bg-white/20 font-semibold text-sm px-2"
+                >
+                  ← Sair
+                </Button>
+                {modoTeste && <Badge className="bg-yellow-500 text-black text-xs">🧪 TESTE</Badge>}
+              </div>
+
+              <div className="text-center mb-3">
+                <h1 className="text-lg font-bold">🔐 Painel Admin</h1>
+              </div>
+
+              <div className="flex items-center justify-center space-x-4">
+                <div className="text-center">
+                  <div
+                    className={`text-sm font-bold transition-all duration-500 ${lojaAberta ? "text-green-400" : "text-red-400"}`}
+                  >
+                    {lojaAberta ? "🟢 ABERTO" : "🔴 FECHADO"}
+                  </div>
+                  <div className="text-xs text-gray-300">{lojaAberta ? "Aceitando pedidos" : "Pedidos pausados"}</div>
+                </div>
+                <button
+                  onClick={alternarStatusLoja}
+                  disabled={carregando}
+                  className={`relative inline-flex h-8 w-16 items-center rounded-full transition-all duration-500 shadow-lg ${
+                    lojaAberta
+                      ? "bg-gradient-to-r from-green-400 to-green-600 shadow-green-500/50"
+                      : "bg-gradient-to-r from-red-400 to-red-600 shadow-red-500/50"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full bg-white transition-all duration-500 shadow-lg ${
+                      lojaAberta ? "translate-x-8 rotate-180" : "translate-x-1"
+                    }`}
+                  >
+                    <span
+                      className={`flex items-center justify-center h-full text-xs font-bold transition-all duration-500 ${
+                        lojaAberta ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      {lojaAberta ? "✓" : "✕"}
+                    </span>
+                  </span>
+                  {carregando && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Layout Desktop */}
+            <div className="hidden sm:flex items-center justify-between">
+              <Button
+                variant="ghost"
+                onClick={() => setTelaAtual("inicio")}
+                className="text-white hover:bg-white/20 font-semibold"
+              >
+                ← Sair Admin
+              </Button>
+              <h1 className="text-2xl font-bold">🔐 Painel Administrativo</h1>
+              <div className="flex items-center space-x-4">
+                {modoTeste && <Badge className="bg-yellow-500 text-black">🧪 TESTE</Badge>}
+                <div className="flex items-center space-x-3">
+                  <div className="text-right">
+                    <div
+                      className={`text-lg font-bold transition-all duration-500 ${lojaAberta ? "text-green-400" : "text-red-400"}`}
+                    >
+                      {lojaAberta ? "🟢 ABERTO" : "🔴 FECHADO"}
+                    </div>
+                    <div className="text-xs text-gray-300">{lojaAberta ? "Aceitando pedidos" : "Pedidos pausados"}</div>
+                  </div>
+                  <button
+                    onClick={alternarStatusLoja}
+                    disabled={carregando}
+                    className={`relative inline-flex h-10 w-20 items-center rounded-full transition-all duration-500 transform hover:scale-110 shadow-2xl ${
+                      lojaAberta
+                        ? "bg-gradient-to-r from-green-400 to-green-600 shadow-green-500/50"
+                        : "bg-gradient-to-r from-red-400 to-red-600 shadow-red-500/50"
+                    } hover:shadow-xl`}
+                    style={{
+                      boxShadow: lojaAberta
+                        ? "0 0 20px rgba(34, 197, 94, 0.4), 0 0 40px rgba(34, 197, 94, 0.2)"
+                        : "0 0 20px rgba(239, 68, 68, 0.4), 0 0 40px rgba(239, 68, 68, 0.2)",
+                    }}
+                  >
+                    <span
+                      className={`inline-block h-8 w-8 transform rounded-full bg-white transition-all duration-500 shadow-lg ${
+                        lojaAberta ? "translate-x-10 rotate-180" : "translate-x-1"
+                      }`}
+                      style={{
+                        boxShadow: "0 4px 8px rgba(0, 0, 0, 0.2), 0 2px 4px rgba(0, 0, 0, 0.1)",
+                      }}
+                    >
+                      <span
+                        className={`flex items-center justify-center h-full text-sm font-bold transition-all duration-500 ${
+                          lojaAberta ? "text-green-600" : "text-red-600"
+                        }`}
+                      >
+                        {lojaAberta ? "✓" : "✕"}
+                      </span>
+                    </span>
+                    {carregando && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    )}
+
+                    {/* Efeito de brilho animado */}
+                    <div
+                      className={`absolute inset-0 rounded-full opacity-30 animate-pulse ${
+                        lojaAberta ? "bg-green-300" : "bg-red-300"
+                      }`}
+                    ></div>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2187,7 +2333,7 @@ function BebidasOnAppContent() {
               <CardContent className="p-6 text-center">
                 <div className="text-3xl mb-2">📋</div>
                 <h3 className="text-lg font-bold text-green-800">Pedidos</h3>
-                <p className="text-3xl font-bold text-green-600">{pedidos.length}</p>
+                <p className="text-3xl font-bold text-green-600">{pedidosFiltrados.length}</p>
               </CardContent>
             </Card>
 
@@ -2196,7 +2342,7 @@ function BebidasOnAppContent() {
                 <div className="text-3xl mb-2">💰</div>
                 <h3 className="text-lg font-bold text-yellow-800">Vendas Totais</h3>
                 <p className="text-2xl font-bold text-yellow-600">
-                  R$ {pedidos.reduce((total, pedido) => total + pedido.total, 0).toFixed(2)}
+                  R$ {pedidosFiltrados.reduce((total, pedido) => total + pedido.total, 0).toFixed(2)}
                 </p>
               </CardContent>
             </Card>
@@ -2595,56 +2741,77 @@ function BebidasOnAppContent() {
 
           {/* ABA PEDIDOS */}
           {abaAdmin === "pedidos" && (
-            <Card className="shadow-lg">
-              <CardContent className="p-6">
-                <h3 className="text-xl font-bold mb-4">📋 Pedidos Recentes ({pedidos.length})</h3>
-                <div className="space-y-4">
-                  {pedidos.map((pedido) => (
-                    <div key={pedido.id} className="border rounded-lg p-4 space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold">Pedido #{pedido.id}</h4>
-                          <p className="text-sm text-gray-600">{pedido.data}</p>
-                          <p className="text-sm">Cliente: {pedido.cliente}</p>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-bold text-green-600 text-lg">R$ {pedido.total.toFixed(2)}</div>
-                          <Badge className="bg-yellow-500 text-black">{pedido.status}</Badge>
-                        </div>
-                      </div>
-                      <div className="text-sm">
-                        <strong>Tipo:</strong> {pedido.tipoEntrega === "entrega" ? "🚚 Entrega" : "🏪 Retirada"}
-                        {pedido.enderecoEntrega && (
+            <div className="space-y-6">
+              {/* Filtro por Data */}
+              <Card className="shadow-lg">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-4">
+                    <label className="text-sm font-medium text-gray-700">Filtrar por período:</label>
+                    <select
+                      value={filtroData}
+                      onChange={(e) => setFiltroData(e.target.value as "todos" | "semana" | "mes" | "ano")}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:border-blue-500"
+                    >
+                      <option value="todos">Todo período</option>
+                      <option value="semana">Última semana</option>
+                      <option value="mes">Último mês</option>
+                      <option value="ano">Último ano</option>
+                    </select>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-lg">
+                <CardContent className="p-6">
+                  <h3 className="text-xl font-bold mb-4">📋 Pedidos ({pedidosFiltrados.length})</h3>
+                  <div className="space-y-4">
+                    {pedidosFiltrados.map((pedido) => (
+                      <div key={pedido.id} className="border rounded-lg p-4 space-y-2">
+                        <div className="flex justify-between items-start">
                           <div>
-                            <strong>Endereço:</strong> {pedido.enderecoEntrega}
+                            <h4 className="font-bold">Pedido #{pedido.id}</h4>
+                            <p className="text-sm text-gray-600">{pedido.data}</p>
+                            <p className="text-sm">Cliente: {pedido.cliente}</p>
                           </div>
-                        )}
-                        <div>
-                          <strong>Pagamento:</strong> {pedido.formaPagamento.toUpperCase()}
+                          <div className="text-right">
+                            <div className="font-bold text-green-600 text-lg">R$ {pedido.total.toFixed(2)}</div>
+                            <Badge className="bg-yellow-500 text-black">{pedido.status}</Badge>
+                          </div>
+                        </div>
+                        <div className="text-sm">
+                          <strong>Tipo:</strong> {pedido.tipoEntrega === "entrega" ? "🚚 Entrega" : "🏪 Retirada"}
+                          {pedido.enderecoEntrega && (
+                            <div>
+                              <strong>Endereço:</strong> {pedido.enderecoEntrega}
+                            </div>
+                          )}
+                          <div>
+                            <strong>Pagamento:</strong> {pedido.formaPagamento.toUpperCase()}
+                          </div>
+                        </div>
+                        <div className="text-sm">
+                          <strong>Itens:</strong>
+                          <ul className="ml-4 mt-1">
+                            {pedido.itens.map((item, index) => (
+                              <li key={index}>
+                                {item.quantidade}x {item.bebida.nome} - R${" "}
+                                {(item.bebida.preco * item.quantidade).toFixed(2)}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       </div>
-                      <div className="text-sm">
-                        <strong>Itens:</strong>
-                        <ul className="ml-4 mt-1">
-                          {pedido.itens.map((item, index) => (
-                            <li key={index}>
-                              {item.quantidade}x {item.bebida.nome} - R${" "}
-                              {(item.bebida.preco * item.quantidade).toFixed(2)}
-                            </li>
-                          ))}
-                        </ul>
+                    ))}
+                    {pedidos.length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        <div className="text-4xl mb-2">📋</div>
+                        <p>Nenhum pedido encontrado</p>
                       </div>
-                    </div>
-                  ))}
-                  {pedidos.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      <div className="text-4xl mb-2">📋</div>
-                      <p>Nenhum pedido encontrado</p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
         </div>
       </div>
@@ -2652,8 +2819,18 @@ function BebidasOnAppContent() {
   }
 
   // TELA DO CARDÁPIO (padrão)
+  if (carregandoInicial) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-orange-600 font-semibold">Carregando cardápio...</p>
+        </div>
+      </div>
+    )
+  }
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 flex flex-col">
+    <div className="min-h-screen bg-white flex flex-col">
       <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-4 text-white sticky top-0 z-10 shadow-lg">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
           <Button
@@ -2685,6 +2862,7 @@ function BebidasOnAppContent() {
             variant="ghost"
             onClick={() => setTelaAtual("carrinho")}
             className="text-white hover:bg-white/20 relative font-semibold hover-lift"
+            disabled={!lojaAberta}
           >
             <ShoppingCart className="w-6 h-6 mr-2" />
             <span className="hidden sm:inline">Carrinho</span>
@@ -2696,8 +2874,25 @@ function BebidasOnAppContent() {
           </Button>
         </div>
       </div>
+      {!lojaAberta && (
+        <div className="bg-gradient-to-r from-orange-100 to-yellow-50 border-l-4 border-orange-500 p-4 mx-4 mt-4 rounded-lg shadow-lg animate-pulse">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
+                <span className="text-white text-sm">⏰</span>
+              </div>
+            </div>
+            <div className="ml-3">
+              <p className="text-orange-800 font-bold">
+                Loja Fechada: Não estamos fazendo pedidos no momento. Volte mais tarde!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <div className="flex-1 max-w-6xl mx-auto p-4">
+      {/* AQUI: Adicione bg-white rounded-lg shadow-inner para o fundo do cardápio */}
+      <div className="flex-1 max-w-6xl mx-auto p-4 bg-white rounded-lg shadow-inner">
         {/* Barra de Busca */}
         <div className="mb-6">
           <div className="relative max-w-md mx-auto">
@@ -2724,6 +2919,7 @@ function BebidasOnAppContent() {
           {categorias.map((categoria) => {
             const IconeComponent = getIconeCategoria(categoria.icone)
             const corInfo = getCorCategoria(categoria.cor)
+
             return (
               <Button
                 key={categoria.id}
@@ -2770,6 +2966,11 @@ function BebidasOnAppContent() {
                         {bebida.estoque === 0 ? "Esgotado" : bebida.estoque <= 5 ? `${bebida.estoque}` : "OK"}
                       </Badge>
                     </div>
+                    {!lojaAberta && (
+                      <div className="absolute top-2 left-2">
+                        <Badge className="bg-orange-500 text-white animate-pulse">FECHADO</Badge>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-3">
@@ -2821,16 +3022,30 @@ function BebidasOnAppContent() {
                     )}
 
                     <Button
-                      onClick={() => adicionarAoCarrinho(bebida, getQuantidadeSelecionada(bebida.id))}
+                      onClick={() => {
+                        if (!lojaAberta) {
+                          addToast({
+                            type: "warning",
+                            title: "🏪 Loja Fechada!",
+                            description: "Não estamos aceitando pedidos no momento.",
+                          })
+                          return
+                        }
+                        adicionarAoCarrinho(bebida, getQuantidadeSelecionada(bebida.id))
+                      }}
                       disabled={bebida.estoque === 0}
                       className={`w-full px-2 py-2 rounded-xl font-semibold text-[10px] sm:text-xs transition-all duration-200 hover-lift flex items-center justify-center gap-1 whitespace-nowrap ${
                         bebida.estoque === 0
                           ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                          : "bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white shadow-lg hover:shadow-xl animate-glow"
+                          : !lojaAberta
+                            ? "bg-gradient-to-r from-orange-400 to-yellow-500 hover:from-orange-500 hover:to-yellow-600 text-white shadow-lg hover:shadow-xl"
+                            : "bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white shadow-lg hover:shadow-xl animate-glow"
                       }`}
                     >
                       {bebida.estoque === 0 ? (
                         "❌ Esgotado"
+                      ) : !lojaAberta ? (
+                        "🏪 Loja Fechada"
                       ) : (
                         <>
                           <Plus className="w-3 h-3" />
@@ -2867,6 +3082,73 @@ function BebidasOnAppContent() {
 
       {/* Rodapé */}
       <Rodape />
+
+      {/* Modal de Senha Moderno */}
+      {modalSenhaAberto && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full transform animate-slideInScale">
+            {/* Header do Modal */}
+            <div className="bg-gradient-to-r from-orange-500 to-yellow-500 rounded-t-2xl p-6 text-white text-center">
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                <span className="text-2xl">🔐</span>
+              </div>
+              <h2 className="text-2xl font-bold mb-2">Acesso Administrativo</h2>
+              <p className="text-white/90 text-sm">Digite a senha para continuar</p>
+            </div>
+
+            {/* Corpo do Modal */}
+            <div className="p-6 space-y-6">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Senha de Administrador</label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={senhaInput}
+                    onChange={(e) => setSenhaInput(e.target.value)}
+                    onKeyPress={(e) => e.key === "Enter" && processarSenha()}
+                    placeholder="Digite sua senha..."
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:ring-0 transition-all duration-300 text-lg"
+                    disabled={senhaCarregando}
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    {senhaCarregando ? (
+                      <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <span className="text-gray-400">🔑</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Botões */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={processarSenha}
+                  disabled={senhaCarregando || !senhaInput.trim()}
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 disabled:from-gray-300 disabled:to-gray-400 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed"
+                >
+                  {senhaCarregando ? (
+                    <span className="flex items-center justify-center space-x-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Verificando...</span>
+                    </span>
+                  ) : (
+                    "🚀 Acessar"
+                  )}
+                </button>
+                <button
+                  onClick={fecharModalSenha}
+                  disabled={senhaCarregando}
+                  className="px-6 py-3 border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-semibold rounded-xl transition-all duration-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  ❌ Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
