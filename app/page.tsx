@@ -2444,7 +2444,6 @@ function BebidasOnAppContent() {
                 <div className="text-3xl mb-2">📦</div>
                 <h3 className="text-lg font-bold text-blue-800">Produtos</h3>
                 <p className="text-3xl font-bold text-blue-600">{bebidas.length}</p>
-                <p className="text-xs text-blue-500 mt-1">🔥 SEM LIMITE</p>
               </CardContent>
             </Card>
 
@@ -2453,7 +2452,6 @@ function BebidasOnAppContent() {
                 <div className="text-3xl mb-2">🏷️</div>
                 <h3 className="text-lg font-bold text-purple-800">Categorias</h3>
                 <p className="text-3xl font-bold text-purple-600">{categorias.length}</p>
-                <p className="text-xs text-purple-500 mt-1">🔥 SEM LIMITE</p>
               </CardContent>
             </Card>
 
@@ -2462,7 +2460,6 @@ function BebidasOnAppContent() {
                 <div className="text-3xl mb-2">📋</div>
                 <h3 className="text-lg font-bold text-green-800">Pedidos</h3>
                 <p className="text-3xl font-bold text-green-600">{pedidosFiltrados.length}</p>
-                <p className="text-xs text-green-500 mt-1">🔥 SEM LIMITE</p>
               </CardContent>
             </Card>
 
