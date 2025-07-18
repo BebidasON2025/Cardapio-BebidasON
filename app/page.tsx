@@ -17,6 +17,8 @@ import {
   Sparkles,
   CupSoda,
   Instagram,
+  Lock,
+  Key,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -81,8 +83,13 @@ interface Pedido {
   status: "enviado" | "confirmado" | "entregue"
 }
 
-// Adicionar após as interfaces, antes das funções
+// 🏪 SISTEMA DE STATUS DA LOJA - MELHORADO PARA SINCRONIZAÇÃO
 const STORAGE_KEY_LOJA_STATUS = "bebidas_on_loja_aberta"
+const STORAGE_KEY_ULTIMA_LIMPEZA = "bebidas_on_ultima_limpeza"
+
+// ⚠️ IMPORTANTE: No Vercel, cada usuário terá seu próprio localStorage
+// Para sincronizar entre todos os dispositivos, seria necessário usar o banco de dados
+// Atualmente funciona apenas localmente em cada dispositivo
 
 // Adicionar função para detectar iOS no início do componente, após as interfaces
 const detectarIOS = () => {
@@ -184,14 +191,10 @@ function BebidasOnAppContent() {
   const [modoTeste, setModoTeste] = useState(false) // 🔴 SEMPRE PRODUÇÃO - SEM DEMO
   const [buscaProdutos, setBuscaProdutos] = useState("")
   const [filtroData, setFiltroData] = useState<"todos" | "semana" | "mes" | "ano">("todos")
-  // Modificar o useState inicial da loja para carregar do localStorage
-  const [lojaAberta, setLojaAberta] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_KEY_LOJA_STATUS)
-      return saved !== null ? JSON.parse(saved) : true
-    }
-    return true
-  })
+
+  // 🏪 SISTEMA DE STATUS DA LOJA MELHORADO
+  const [lojaAberta, setLojaAberta] = useState(true)
+  const [statusCarregado, setStatusCarregado] = useState(false)
 
   const [novoItem, setNovoItem] = useState({
     nome: "",
@@ -218,6 +221,68 @@ function BebidasOnAppContent() {
   const [senhaInput, setSenhaInput] = useState("")
   const [senhaCarregando, setSenhaCarregando] = useState(false)
   const [carregandoInicial, setCarregandoInicial] = useState(true)
+
+  // 🏪 CARREGAR STATUS DA LOJA AO INICIAR
+  useEffect(() => {
+    const carregarStatusLoja = () => {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_LOJA_STATUS)
+        if (saved !== null) {
+          const status = JSON.parse(saved)
+          console.log(`🏪 Status da loja carregado: ${status ? "ABERTA" : "FECHADA"}`)
+          setLojaAberta(status)
+        } else {
+          console.log("🏪 Status da loja não encontrado, usando padrão: ABERTA")
+          setLojaAberta(true)
+        }
+      } catch (error) {
+        console.error("❌ Erro ao carregar status da loja:", error)
+        setLojaAberta(true)
+      } finally {
+        setStatusCarregado(true)
+      }
+    }
+
+    carregarStatusLoja()
+  }, [])
+
+  // 🧹 LIMPEZA AUTOMÁTICA SEMANAL (SILENCIOSA)
+  useEffect(() => {
+    const verificarLimpezaAutomatica = async () => {
+      try {
+        const ultimaLimpeza = localStorage.getItem(STORAGE_KEY_ULTIMA_LIMPEZA)
+        const agora = new Date()
+
+        if (!ultimaLimpeza) {
+          // Primeira vez - salvar data atual
+          localStorage.setItem(STORAGE_KEY_ULTIMA_LIMPEZA, agora.toISOString())
+          console.log("📅 Data da primeira limpeza salva")
+          return
+        }
+
+        const dataUltimaLimpeza = new Date(ultimaLimpeza)
+        const diasDesdeUltimaLimpeza = Math.floor(
+          (agora.getTime() - dataUltimaLimpeza.getTime()) / (1000 * 60 * 60 * 24),
+        )
+
+        console.log(`📅 Dias desde a última limpeza: ${diasDesdeUltimaLimpeza}`)
+
+        // Se passou 7 dias ou mais, fazer limpeza automática
+        if (diasDesdeUltimaLimpeza >= 7) {
+          console.log("🧹 Iniciando limpeza automática semanal...")
+          await limparBancoDadosAutomatico()
+          localStorage.setItem(STORAGE_KEY_ULTIMA_LIMPEZA, agora.toISOString())
+        }
+      } catch (error) {
+        console.error("❌ Erro na verificação de limpeza automática:", error)
+      }
+    }
+
+    // Verificar limpeza após carregar os dados
+    if (!carregandoInicial) {
+      verificarLimpezaAutomatica()
+    }
+  }, [carregandoInicial])
 
   // 💾 CARREGAR DADOS - OTIMIZADO PARA CARREGAMENTO RÁPIDO
   useEffect(() => {
@@ -343,19 +408,22 @@ function BebidasOnAppContent() {
 
   const carregarCategorias = async () => {
     try {
-      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("nome").limit(20) // Limitar para carregamento mais rápido
+      // 🔥 REMOVIDO LIMITE - Carrega TODAS as categorias
+      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("nome")
 
       if (error) throw error
       setCategorias(data || [])
+      console.log(`✅ ${data?.length || 0} categorias carregadas (SEM LIMITE)`)
     } catch (error) {
       console.error("❌ Erro ao carregar categorias:", error)
-      // Não fazer throw para não quebrar o carregamento
     }
   }
 
   const carregarBebidas = async () => {
     try {
-      // ⚡ CARREGAMENTO SUPER OTIMIZADO - PRIORIDADE MÁXIMA
+      console.log("🍻 Carregando TODAS as bebidas (SEM LIMITE)...")
+
+      // 🔥 REMOVIDO LIMITE - Carrega TODAS as bebidas
       const { data: bebidasData, error: bebidasError } = await supabase
         .from("bebidas")
         .select(`
@@ -370,7 +438,6 @@ function BebidasOnAppContent() {
       `)
         .eq("ativo", true)
         .order("nome")
-        .limit(50) // Limitar para carregamento mais rápido
 
       if (bebidasError) throw bebidasError
 
@@ -380,14 +447,17 @@ function BebidasOnAppContent() {
       }))
 
       setBebidas(bebidasComCategorias)
+      console.log(`✅ ${bebidasComCategorias.length} bebidas carregadas com sucesso (SEM LIMITE)`)
     } catch (error) {
       console.error("❌ Erro ao carregar bebidas:", error)
-      // Não fazer throw para não quebrar o carregamento
     }
   }
 
   const carregarPedidos = async () => {
     try {
+      console.log("📋 Carregando TODOS os pedidos (SEM LIMITE)...")
+
+      // 🔥 REMOVIDO LIMITE - Carrega TODOS os pedidos
       const { data, error } = await supabase.from("pedidos").select("*").order("created_at", { ascending: false })
 
       if (error) throw error
@@ -408,7 +478,7 @@ function BebidasOnAppContent() {
       }))
 
       setPedidos(pedidosFormatados)
-      console.log("✅ Pedidos carregados:", pedidosFormatados.length)
+      console.log(`✅ ${pedidosFormatados.length} pedidos carregados com sucesso (SEM LIMITE)`)
     } catch (error) {
       console.error("❌ Erro ao carregar pedidos:", error)
       // Não fazer throw para não quebrar o carregamento
@@ -1419,45 +1489,79 @@ function BebidasOnAppContent() {
 
   const alternarStatusLoja = async () => {
     const novoStatus = !lojaAberta
-
-    if (modoTeste) {
-      setLojaAberta(novoStatus)
-      localStorage.setItem(STORAGE_KEY_LOJA_STATUS, JSON.stringify(novoStatus))
-      addToast({
-        type: "info",
-        title: `🧪 TESTE: Loja ${novoStatus ? "ABERTA" : "FECHADA"}!`,
-        description: "Status alterado e salvo localmente.",
-      })
-      return
-    }
+    console.log(
+      `🏪 Alterando status da loja: ${lojaAberta ? "ABERTA" : "FECHADA"} → ${novoStatus ? "ABERTA" : "FECHADA"}`,
+    )
 
     try {
       setCarregando(true)
 
-      // Salvar no localStorage
-      localStorage.setItem(STORAGE_KEY_LOJA_STATUS, JSON.stringify(novoStatus))
-
-      // Aqui você pode salvar no Supabase se quiser persistir globalmente
-      // const { error } = await supabase
-      //   .from("configuracoes")
-      //   .upsert({ chave: "loja_aberta", valor: novoStatus })
-
+      // Atualizar o estado PRIMEIRO para feedback imediato
       setLojaAberta(novoStatus)
+
+      // Salvar no localStorage de forma síncrona
+      try {
+        localStorage.setItem(STORAGE_KEY_LOJA_STATUS, JSON.stringify(novoStatus))
+        console.log(`💾 Status salvo no localStorage: ${novoStatus ? "ABERTA" : "FECHADA"}`)
+      } catch (error) {
+        console.error("❌ Erro ao salvar no localStorage:", error)
+      }
+
+      // Mostrar toast de confirmação
       addToast({
         type: novoStatus ? "success" : "warning",
         title: `🏪 Loja ${novoStatus ? "ABERTA" : "FECHADA"}!`,
         description: novoStatus
-          ? "Clientes podem fazer pedidos normalmente"
-          : "Pedidos foram bloqueados, mas cardápio continua visível",
+          ? "✅ Clientes podem fazer pedidos normalmente"
+          : "⏸️ Pedidos foram pausados temporariamente",
+        duration: 3000,
       })
+
+      console.log(`✅ Status da loja alterado com sucesso para: ${novoStatus ? "ABERTA" : "FECHADA"}`)
     } catch (error) {
+      console.error("❌ Erro ao alterar status da loja:", error)
       addToast({
         type: "error",
-        title: "Erro ao alterar status",
-        description: "Não foi possível alterar o status da loja.",
+        title: "❌ Erro ao alterar status",
+        description: "Não foi possível alterar o status da loja. Tente novamente.",
       })
     } finally {
       setCarregando(false)
+    }
+  }
+
+  // 🧹 LIMPEZA AUTOMÁTICA DO BANCO DE DADOS (SILENCIOSA)
+  const limparBancoDadosAutomatico = async () => {
+    try {
+      console.log("🧹 Iniciando limpeza automática semanal...")
+
+      // Manter apenas os últimos 50 pedidos
+      const { data: todosPedidos, error: erroPedidos } = await supabase
+        .from("pedidos")
+        .select("id, created_at")
+        .order("created_at", { ascending: false })
+
+      if (erroPedidos) throw erroPedidos
+
+      if (todosPedidos && todosPedidos.length > 50) {
+        // Identificar pedidos para excluir (manter os 50 mais recentes)
+        const pedidosParaExcluir = todosPedidos.slice(50)
+        const idsParaExcluir = pedidosParaExcluir.map((p) => p.id)
+
+        // Excluir pedidos antigos
+        const { error: erroExclusao } = await supabase.from("pedidos").delete().in("id", idsParaExcluir)
+
+        if (erroExclusao) throw erroExclusao
+
+        console.log(`✅ Limpeza automática concluída: ${pedidosParaExcluir.length} pedidos antigos removidos`)
+
+        // Recarregar pedidos silenciosamente
+        await carregarPedidos()
+      } else {
+        console.log("ℹ️ Limpeza automática: Nada para limpar")
+      }
+    } catch (error) {
+      console.error("❌ Erro na limpeza automática:", error)
     }
   }
 
@@ -1514,6 +1618,29 @@ function BebidasOnAppContent() {
 
   const pedidosFiltrados = filtrarPedidosPorData(pedidos)
 
+  // 🏪 VERIFICAR STATUS DA LOJA EM TEMPO REAL
+  useEffect(() => {
+    const verificarStatusLoja = () => {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_LOJA_STATUS)
+        if (saved !== null) {
+          const status = JSON.parse(saved)
+          if (status !== lojaAberta) {
+            console.log(`🔄 Status da loja atualizado: ${status ? "ABERTA" : "FECHADA"}`)
+            setLojaAberta(status)
+          }
+        }
+      } catch (error) {
+        console.error("❌ Erro ao verificar status da loja:", error)
+      }
+    }
+
+    // Verificar a cada 2 segundos
+    const interval = setInterval(verificarStatusLoja, 2000)
+
+    return () => clearInterval(interval)
+  }, [lojaAberta])
+
   // TELA INICIAL - SEM BADGE DE DEMONSTRAÇÃO
   if (telaAtual === "inicio") {
     return (
@@ -1535,7 +1662,7 @@ function BebidasOnAppContent() {
               <div className="mb-6">
                 <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl border-4 border-white/30 animate-logo-chamativa">
                   <Image
-                    src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
+                    src="/logo-bebidas-on.png"
                     alt="Bebidas ON Logo"
                     width={200}
                     height={200}
@@ -1614,7 +1741,6 @@ function BebidasOnAppContent() {
     )
   }
 
-  // TELA DO CARDÁPIO (padrão)
   // TELA DO CARRINHO
   if (telaAtual === "carrinho") {
     return (
@@ -1634,7 +1760,7 @@ function BebidasOnAppContent() {
                 onDoubleClick={acessoAdmin}
               >
                 <Image
-                  src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
+                  src="/logo-bebidas-on.png"
                   alt="Logo"
                   width={40}
                   height={40}
@@ -2042,7 +2168,7 @@ function BebidasOnAppContent() {
             <div className="text-center border-b pb-4">
               <div className="w-16 h-16 mx-auto rounded-full overflow-hidden mb-4">
                 <Image
-                  src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
+                  src="/logo-bebidas-on.png"
                   alt="Logo"
                   width={64}
                   height={64}
@@ -2311,13 +2437,14 @@ function BebidasOnAppContent() {
         </div>
 
         <div className="max-w-6xl mx-auto p-4">
-          {/* Dashboard Cards */}
+          {/* Dashboard Cards - SEM LIMITES */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <Card className="shadow-lg bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
               <CardContent className="p-6 text-center">
                 <div className="text-3xl mb-2">📦</div>
                 <h3 className="text-lg font-bold text-blue-800">Produtos</h3>
                 <p className="text-3xl font-bold text-blue-600">{bebidas.length}</p>
+                <p className="text-xs text-blue-500 mt-1">🔥 SEM LIMITE</p>
               </CardContent>
             </Card>
 
@@ -2326,6 +2453,7 @@ function BebidasOnAppContent() {
                 <div className="text-3xl mb-2">🏷️</div>
                 <h3 className="text-lg font-bold text-purple-800">Categorias</h3>
                 <p className="text-3xl font-bold text-purple-600">{categorias.length}</p>
+                <p className="text-xs text-purple-500 mt-1">🔥 SEM LIMITE</p>
               </CardContent>
             </Card>
 
@@ -2334,6 +2462,7 @@ function BebidasOnAppContent() {
                 <div className="text-3xl mb-2">📋</div>
                 <h3 className="text-lg font-bold text-green-800">Pedidos</h3>
                 <p className="text-3xl font-bold text-green-600">{pedidosFiltrados.length}</p>
+                <p className="text-xs text-green-500 mt-1">🔥 SEM LIMITE</p>
               </CardContent>
             </Card>
 
@@ -2616,7 +2745,7 @@ function BebidasOnAppContent() {
               {/* Lista de Produtos */}
               <Card className="shadow-lg">
                 <CardContent className="p-6">
-                  <h3 className="text-xl font-bold mb-4">🍻 Produtos ({produtosFiltrados.length})</h3>
+                  <h3 className="text-xl font-bold mb-4">🍻 Produtos ({produtosFiltrados.length}) - 🔥 SEM LIMITE</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {produtosFiltrados.map((bebida) => (
                       <div key={bebida.id} className="border rounded-lg p-4 space-y-3">
@@ -2763,7 +2892,7 @@ function BebidasOnAppContent() {
 
               <Card className="shadow-lg">
                 <CardContent className="p-6">
-                  <h3 className="text-xl font-bold mb-4">📋 Pedidos ({pedidosFiltrados.length})</h3>
+                  <h3 className="text-xl font-bold mb-4">📋 Pedidos ({pedidosFiltrados.length}) - 🔥 SEM LIMITE</h3>
                   <div className="space-y-4">
                     {pedidosFiltrados.map((pedido) => (
                       <div key={pedido.id} className="border rounded-lg p-4 space-y-2">
@@ -2836,7 +2965,7 @@ function BebidasOnAppContent() {
           <Button
             variant="ghost"
             onClick={() => setTelaAtual("inicio")}
-            className="text-white hover:bg-white/20 font-semib old hover-lift"
+            className="text-white hover:bg-white/20 font-semibold hover-lift"
           >
             ← Início
           </Button>
@@ -2846,7 +2975,7 @@ function BebidasOnAppContent() {
               onDoubleClick={acessoAdmin}
             >
               <Image
-                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-WvajSz47R3BLLDpToPYwJTlba8FRIH.png"
+                src="/logo-bebidas-on.png"
                 alt="Logo"
                 width={40}
                 height={40}
@@ -3083,67 +3212,66 @@ function BebidasOnAppContent() {
       {/* Rodapé */}
       <Rodape />
 
-      {/* Modal de Senha Moderno */}
+      {/* 🔥 MODAL DE SENHA REDESENHADO CONFORME A IMAGEM */}
       {modalSenhaAberto && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full transform animate-slideInScale">
-            {/* Header do Modal */}
-            <div className="bg-gradient-to-r from-orange-500 to-yellow-500 rounded-t-2xl p-6 text-white text-center">
-              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
-                <span className="text-2xl">🔐</span>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            {/* Header com gradiente laranja */}
+            <div className="bg-gradient-to-r from-orange-400 via-orange-500 to-yellow-500 p-8 text-center text-white">
+              <div className="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center">
+                <Lock className="w-8 h-8 text-white" />
               </div>
               <h2 className="text-2xl font-bold mb-2">Acesso Administrativo</h2>
               <p className="text-white/90 text-sm">Digite a senha para continuar</p>
             </div>
 
-            {/* Corpo do Modal */}
+            {/* Conteúdo do modal */}
             <div className="p-6 space-y-6">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Senha de Administrador</label>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">Senha de Administrador</label>
                 <div className="relative">
                   <input
                     type="password"
                     value={senhaInput}
                     onChange={(e) => setSenhaInput(e.target.value)}
                     onKeyPress={(e) => e.key === "Enter" && processarSenha()}
+                    className="w-full px-4 py-3 pr-12 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-700 placeholder-gray-400"
                     placeholder="Digite sua senha..."
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:ring-0 transition-all duration-300 text-lg"
                     disabled={senhaCarregando}
-                    autoFocus
                   />
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    {senhaCarregando ? (
-                      <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-                    ) : (
-                      <span className="text-gray-400">🔑</span>
-                    )}
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                    <Key className="w-5 h-5 text-orange-500" />
                   </div>
                 </div>
               </div>
 
               {/* Botões */}
               <div className="flex space-x-3">
-                <button
+                <Button
                   onClick={processarSenha}
                   disabled={senhaCarregando || !senhaInput.trim()}
-                  className="flex-1 bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 disabled:from-gray-300 disabled:to-gray-400 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed"
+                  className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 rounded-xl transition-all duration-200 flex items-center justify-center space-x-2"
                 >
                   {senhaCarregando ? (
-                    <span className="flex items-center justify-center space-x-2">
+                    <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                       <span>Verificando...</span>
-                    </span>
+                    </>
                   ) : (
-                    "🚀 Acessar"
+                    <>
+                      <span>🚀</span>
+                      <span>Acessar</span>
+                    </>
                   )}
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={fecharModalSenha}
                   disabled={senhaCarregando}
-                  className="px-6 py-3 border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-semibold rounded-xl transition-all duration-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 bg-white hover:bg-gray-50 text-red-600 font-semibold py-3 rounded-xl border-2 border-gray-200 transition-all duration-200 flex items-center justify-center space-x-2"
                 >
-                  ❌ Cancelar
-                </button>
+                  <span>✕</span>
+                  <span>Cancelar</span>
+                </Button>
               </div>
             </div>
           </div>
