@@ -30,9 +30,9 @@ import { createClient } from "@supabase/supabase-js"
 import { ToastProvider, useToast } from "@/components/toast"
 
 // 🗄️ CONFIGURAÇÃO DO SUPABASE
-const supabaseUrl = "https://qcaoaciohcqcwulsrtzu.supabase.co"
+const supabaseUrl = "https://qmjxxvagyfabiyuiinlm.supabase.co"
 const supabaseKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjYW9hY2lvaGNxY3d1bHNydHp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ3NjU1MTgsImV4cCI6MjA3MDM0MTUxOH0.WV10l7nJMDsr84otsWCsRDGDjjrm5TX5a8yRLg2gpgk"
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFtanh4dmFneWZhYml5dWlpbmxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ3NjMwNDYsImV4cCI6MjA3MDMzOTA0Nn0.pUSsnv5ckUx_YTFV3J-gum-roVX1a0ifKWyRYofgWWA"
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
