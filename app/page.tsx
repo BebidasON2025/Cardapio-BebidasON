@@ -421,10 +421,11 @@ function BebidasOnAppContent() {
 
   const carregarBebidas = async () => {
     try {
-      console.log("🍻 Carregando TODOS os produtos (SEM LIMITE)...")
+      console.log("🍻 Carregando TODAS as bebidas (SEM LIMITE)...")
 
-      const { data: produtosData, error: produtosError } = await supabase
-        .from("produtos")
+      // 🔥 REMOVIDO LIMITE - Carrega TODAS as bebidas
+      const { data: bebidasData, error: bebidasError } = await supabase
+        .from("bebidas")
         .select(`
         *,
         categorias (
@@ -435,26 +436,20 @@ function BebidasOnAppContent() {
           ativo
         )
       `)
+        .eq("ativo", true)
         .order("nome")
 
-      if (produtosError) throw produtosError
+      if (bebidasError) throw bebidasError
 
-      const bebidasComCategorias = (produtosData || []).map((produto) => ({
-        id: produto.id,
-        nome: produto.nome,
-        descricao: produto.descricao || "",
-        preco: produto.preco,
-        categoria_id: produto.categoria_id || 1,
-        categoria: produto.categorias || null,
-        imagem: produto.imagem || "/placeholder.svg?height=200&width=300&text=Produto",
-        estoque: produto.estoque || 0,
-        ativo: true,
+      const bebidasComCategorias = (bebidasData || []).map((bebida) => ({
+        ...bebida,
+        categoria: bebida.categorias || null,
       }))
 
       setBebidas(bebidasComCategorias)
-      console.log(`✅ ${bebidasComCategorias.length} produtos carregados com sucesso (SEM LIMITE)`)
+      console.log(`✅ ${bebidasComCategorias.length} bebidas carregadas com sucesso (SEM LIMITE)`)
     } catch (error) {
-      console.error("❌ Erro ao carregar produtos:", error)
+      console.error("❌ Erro ao carregar bebidas:", error)
     }
   }
 
@@ -684,44 +679,12 @@ function BebidasOnAppContent() {
 
         console.log("✅ Pedido inserido com sucesso:", novoPedido.id)
 
-        try {
-          console.log("🔄 Enviando pedido para sistema de gestão...")
-          const response = await fetch("https://appbebidason.vercel.app/api/integrar-pedido", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              id: novoPedido.id,
-              cliente_nome: novoPedido.cliente,
-              cliente_telefone: "", // Adicione se tiver campo de telefone
-              items: novoPedido.itens.map((item) => ({
-                produto_nome: item.bebida.nome,
-                quantidade: item.quantidade,
-                preco_unitario: item.bebida.preco,
-              })),
-              total: novoPedido.total,
-              metodo_pagamento: novoPedido.formaPagamento,
-              endereco_entrega: novoPedido.enderecoEntrega || "",
-              tipo_entrega: novoPedido.tipoEntrega,
-              status: novoPedido.status,
-            }),
-          })
-
-          if (response.ok) {
-            console.log("✅ Pedido sincronizado com sistema de gestão")
-          } else {
-            console.warn("⚠️ Erro na sincronização com sistema de gestão:", await response.text())
-          }
-        } catch (syncError) {
-          console.log("⚠️ Erro na sincronização, mas pedido foi salvo:", syncError)
-        }
-
+        // Atualizar estoque
         console.log("📦 Atualizando estoque...")
         for (const item of carrinho) {
           const novoEstoque = Math.max(0, item.bebida.estoque - item.quantidade)
           const { error: estoqueError } = await supabase
-            .from("produtos")
+            .from("bebidas")
             .update({ estoque: novoEstoque })
             .eq("id", item.bebida.id)
 
@@ -1178,15 +1141,16 @@ function BebidasOnAppContent() {
     try {
       setCarregando(true)
       const { data, error } = await supabase
-        .from("produtos")
+        .from("bebidas")
         .insert([
           {
             nome: novoItem.nome,
             descricao: novoItem.descricao,
             preco: Number.parseFloat(novoItem.preco),
             categoria_id: Number.parseInt(novoItem.categoria_id),
-            imagem: novoItem.imagem || "/placeholder.svg?height=200&width=300&text=Produto",
+            imagem: novoItem.imagem || "/placeholder.svg?height=200&width=300&text=Bebida",
             estoque: Number.parseInt(novoItem.estoque) || 0,
+            ativo: true,
           },
         ])
         .select()
@@ -1234,7 +1198,7 @@ function BebidasOnAppContent() {
       }
 
       try {
-        const { error } = await supabase.from("produtos").delete().eq("id", id)
+        const { error } = await supabase.from("bebidas").delete().eq("id", id)
         if (error) {
           addToast({
             type: "error",
@@ -1266,7 +1230,7 @@ function BebidasOnAppContent() {
     }
 
     try {
-      const { error } = await supabase.from("produtos").update({ estoque: novoEstoque }).eq("id", id)
+      const { error } = await supabase.from("bebidas").update({ estoque: novoEstoque }).eq("id", id)
       if (error) {
         addToast({
           type: "error",
@@ -1424,7 +1388,7 @@ function BebidasOnAppContent() {
     try {
       setCarregando(true)
       const { error } = await supabase
-        .from("produtos")
+        .from("bebidas")
         .update({
           nome: editandoItem.nome,
           descricao: editandoItem.descricao,
