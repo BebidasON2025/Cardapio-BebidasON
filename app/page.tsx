@@ -421,11 +421,10 @@ function BebidasOnAppContent() {
 
   const carregarBebidas = async () => {
     try {
-      console.log("🍻 Carregando TODAS as bebidas (SEM LIMITE)...")
+      console.log("🍻 Carregando TODOS os produtos (SEM LIMITE)...")
 
-      // 🔥 REMOVIDO LIMITE - Carrega TODAS as bebidas
-      const { data: bebidasData, error: bebidasError } = await supabase
-        .from("bebidas")
+      const { data: produtosData, error: produtosError } = await supabase
+        .from("produtos")
         .select(`
         *,
         categorias (
@@ -436,20 +435,26 @@ function BebidasOnAppContent() {
           ativo
         )
       `)
-        .eq("ativo", true)
         .order("nome")
 
-      if (bebidasError) throw bebidasError
+      if (produtosError) throw produtosError
 
-      const bebidasComCategorias = (bebidasData || []).map((bebida) => ({
-        ...bebida,
-        categoria: bebida.categorias || null,
+      const bebidasComCategorias = (produtosData || []).map((produto) => ({
+        id: produto.id,
+        nome: produto.nome,
+        descricao: produto.descricao || "",
+        preco: produto.preco,
+        categoria_id: produto.categoria_id || 1,
+        categoria: produto.categorias || null,
+        imagem: produto.imagem || "/placeholder.svg?height=200&width=300&text=Produto",
+        estoque: produto.estoque || 0,
+        ativo: true,
       }))
 
       setBebidas(bebidasComCategorias)
-      console.log(`✅ ${bebidasComCategorias.length} bebidas carregadas com sucesso (SEM LIMITE)`)
+      console.log(`✅ ${bebidasComCategorias.length} produtos carregados com sucesso (SEM LIMITE)`)
     } catch (error) {
-      console.error("❌ Erro ao carregar bebidas:", error)
+      console.error("❌ Erro ao carregar produtos:", error)
     }
   }
 
@@ -712,12 +717,11 @@ function BebidasOnAppContent() {
           console.log("⚠️ Erro na sincronização, mas pedido foi salvo:", syncError)
         }
 
-        // Atualizar estoque
         console.log("📦 Atualizando estoque...")
         for (const item of carrinho) {
           const novoEstoque = Math.max(0, item.bebida.estoque - item.quantidade)
           const { error: estoqueError } = await supabase
-            .from("bebidas")
+            .from("produtos")
             .update({ estoque: novoEstoque })
             .eq("id", item.bebida.id)
 
@@ -1174,16 +1178,15 @@ function BebidasOnAppContent() {
     try {
       setCarregando(true)
       const { data, error } = await supabase
-        .from("bebidas")
+        .from("produtos")
         .insert([
           {
             nome: novoItem.nome,
             descricao: novoItem.descricao,
             preco: Number.parseFloat(novoItem.preco),
             categoria_id: Number.parseInt(novoItem.categoria_id),
-            imagem: novoItem.imagem || "/placeholder.svg?height=200&width=300&text=Bebida",
+            imagem: novoItem.imagem || "/placeholder.svg?height=200&width=300&text=Produto",
             estoque: Number.parseInt(novoItem.estoque) || 0,
-            ativo: true,
           },
         ])
         .select()
@@ -1231,7 +1234,7 @@ function BebidasOnAppContent() {
       }
 
       try {
-        const { error } = await supabase.from("bebidas").delete().eq("id", id)
+        const { error } = await supabase.from("produtos").delete().eq("id", id)
         if (error) {
           addToast({
             type: "error",
@@ -1263,7 +1266,7 @@ function BebidasOnAppContent() {
     }
 
     try {
-      const { error } = await supabase.from("bebidas").update({ estoque: novoEstoque }).eq("id", id)
+      const { error } = await supabase.from("produtos").update({ estoque: novoEstoque }).eq("id", id)
       if (error) {
         addToast({
           type: "error",
@@ -1421,7 +1424,7 @@ function BebidasOnAppContent() {
     try {
       setCarregando(true)
       const { error } = await supabase
-        .from("bebidas")
+        .from("produtos")
         .update({
           nome: editandoItem.nome,
           descricao: editandoItem.descricao,
