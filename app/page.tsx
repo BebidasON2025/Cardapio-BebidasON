@@ -679,6 +679,39 @@ function BebidasOnAppContent() {
 
         console.log("✅ Pedido inserido com sucesso:", novoPedido.id)
 
+        try {
+          console.log("🔄 Enviando pedido para sistema de gestão...")
+          const response = await fetch("https://appbebidason.vercel.app/api/integrar-pedido", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              id: novoPedido.id,
+              cliente_nome: novoPedido.cliente,
+              cliente_telefone: "", // Adicione se tiver campo de telefone
+              items: novoPedido.itens.map((item) => ({
+                produto_nome: item.bebida.nome,
+                quantidade: item.quantidade,
+                preco_unitario: item.bebida.preco,
+              })),
+              total: novoPedido.total,
+              metodo_pagamento: novoPedido.formaPagamento,
+              endereco_entrega: novoPedido.enderecoEntrega || "",
+              tipo_entrega: novoPedido.tipoEntrega,
+              status: novoPedido.status,
+            }),
+          })
+
+          if (response.ok) {
+            console.log("✅ Pedido sincronizado com sistema de gestão")
+          } else {
+            console.warn("⚠️ Erro na sincronização com sistema de gestão:", await response.text())
+          }
+        } catch (syncError) {
+          console.log("⚠️ Erro na sincronização, mas pedido foi salvo:", syncError)
+        }
+
         // Atualizar estoque
         console.log("📦 Atualizando estoque...")
         for (const item of carrinho) {
