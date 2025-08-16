@@ -29,7 +29,7 @@ import Image from "next/image"
 import { createClient } from "@supabase/supabase-js"
 import { ToastProvider, useToast } from "@/components/toast"
 
-const SISTEMA_API_URL = "https://appbebidason.vercel.app"
+const SISTEMA_API_URL = "https://appbebidason.vercel.app/"
 const USAR_INTEGRACAO = true
 
 // 🗄️ CONFIGURAÇÃO DO SUPABASE
