@@ -29,9 +29,6 @@ import Image from "next/image"
 import { createClient } from "@supabase/supabase-js"
 import { ToastProvider, useToast } from "@/components/toast"
 
-const SISTEMA_API_URL = "https://appbebidason.vercel.app"
-const USAR_INTEGRACAO = true
-
 // 🗄️ CONFIGURAÇÃO DO SUPABASE
 const supabaseUrl = "https://qcaoaciohcqcwulsrtzu.supabase.co"
 const supabaseKey =
@@ -83,9 +80,7 @@ interface Pedido {
   tipoEntrega: "entrega" | "retirada"
   enderecoEntrega?: string
   localizacao?: string
-  status: "enviado" | "confirmado" | "entregue" | "pendente"
-  endereco?: string
-  observacoes?: string
+  status: "enviado" | "confirmado" | "entregue"
 }
 
 // 🏪 SISTEMA DE STATUS DA LOJA - MELHORADO PARA SINCRONIZAÇÃO
@@ -428,31 +423,6 @@ function BebidasOnAppContent() {
     try {
       console.log("🍻 Carregando TODAS as bebidas (SEM LIMITE)...")
 
-      if (USAR_INTEGRACAO) {
-        try {
-          const response = await fetch(`${SISTEMA_API_URL}/api/menu/produtos`)
-          if (response.ok) {
-            const data = await response.json()
-            const bebidasIntegradas = data.map((produto: any) => ({
-              id: produto.id,
-              nome: produto.nome,
-              descricao: produto.nome,
-              preco: produto.preco,
-              categoria_id: 1,
-              categoria: { id: 1, nome: produto.categoria || "Bebidas", icone: "package", cor: "amber", ativo: true },
-              imagem: produto.imagem || "/placeholder.svg?height=200&width=300&text=Bebida",
-              estoque: produto.estoque,
-              ativo: true,
-            }))
-            setBebidas(bebidasIntegradas)
-            console.log(`✅ ${bebidasIntegradas.length} bebidas carregadas do sistema principal`)
-            return
-          }
-        } catch (error) {
-          console.error("❌ Erro ao carregar do sistema principal, usando Supabase local:", error)
-        }
-      }
-
       // 🔥 REMOVIDO LIMITE - Carrega TODAS as bebidas
       const { data: bebidasData, error: bebidasError } = await supabase
         .from("bebidas")
@@ -599,148 +569,160 @@ function BebidasOnAppContent() {
     return 0
   }
 
-  const [processandoPedido, setProcessandoPedido] = useState(false)
-  const [cliente, setCliente] = useState("")
-  const [endereco, setEndereco] = useState("")
-  const [observacoes, setObservacoes] = useState("")
-
   const finalizarPedido = async () => {
+    console.log("🔄 Iniciando finalização do pedido...")
+
+    // Verificar se a loja está aberta
+    if (!lojaAberta) {
+      addToast({
+        type: "error",
+        title: "🏪 Loja Fechada!",
+        description: "Desculpe, não estamos aceitando pedidos no momento.",
+      })
+      return
+    }
+
+    // Validações
     if (carrinho.length === 0) {
       addToast({
         type: "error",
         title: "Carrinho vazio!",
-        description: "Adicione pelo menos um item ao carrinho para finalizar o pedido.",
+        description: "Adicione alguns itens antes de finalizar o pedido.",
+      })
+      return
+    }
+
+    const nomeClientePadrao = "Cliente"
+
+    const totalComTaxa = totalCarrinho + (tipoEntrega === "entrega" ? TAXA_ENTREGA : 0)
+    if (formaPagamento === "dinheiro" && (!valorPago || Number.parseFloat(valorPago) < totalComTaxa)) {
+      addToast({
+        type: "error",
+        title: "Valor pago insuficiente!",
+        description: "O valor pago deve ser maior ou igual ao total do pedido.",
       })
       return
     }
 
     try {
-      setProcessandoPedido(true)
+      setCarregando(true)
 
-      const total = carrinho.reduce((acc, item) => acc + item.bebida.preco * item.quantidade, 0)
-      const novoPedido: Pedido = {
-        id: `VENDA${Date.now().toString().slice(-6)}`,
-        data: new Date().toISOString(),
-        itens: carrinho,
-        total,
-        formaPagamento,
-        valorPago: formaPagamento === "dinheiro" ? valorPago : total,
-        troco: formaPagamento === "dinheiro" ? (valorPago || 0) - total : 0,
-        cliente: cliente.trim() || "Cliente",
-        tipoEntrega,
-        endereco: tipoEntrega === "entrega" ? endereco : "",
-        observacoes,
-        status: "pendente",
-      }
-
-      if (USAR_INTEGRACAO) {
+      // Obter localização APENAS se for entrega E tiver endereço preenchido
+      let localizacaoFinal = ""
+      if (tipoEntrega === "entrega" && enderecoEntrega.trim()) {
         try {
-          const pedidoParaSistema = {
-            numero: novoPedido.id,
-            cliente: novoPedido.cliente,
-            total: novoPedido.total,
-            metodo_pagamento:
-              novoPedido.formaPagamento === "cartao" ? "Cartão" : novoPedido.formaPagamento === "pix" ? "Pix" : "Fiado",
-            status: "pago",
-            itens: novoPedido.itens.map((item) => ({
-              produto_id: item.bebida.id,
-              produto_nome: item.bebida.nome,
-              quantidade: item.quantidade,
-              preco: item.bebida.preco,
-            })),
-            endereco: novoPedido.endereco,
-            observacoes: novoPedido.observacoes,
-          }
-
-          console.log("🔄 Enviando pedido para sistema principal:", pedidoParaSistema)
-          const response = await fetch(`${SISTEMA_API_URL}/api/menu/pedidos`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(pedidoParaSistema),
+          localizacaoFinal = await obterLocalizacaoAtual()
+          addToast({
+            type: "info",
+            title: "📍 Localização capturada!",
+            description: "Sua localização será enviada junto com o pedido",
           })
+        } catch (error) {
+          console.warn("⚠️ Não foi possível obter localização, continuando sem ela")
+          localizacaoFinal = ""
+        }
+      }
 
-          if (response.ok) {
-            console.log("✅ Pedido enviado para o sistema principal")
-          } else {
-            console.error("❌ Erro ao enviar pedido para o sistema principal:", response.status)
+      // Gerar ID único sequencial - VERSÃO CORRIGIDA
+      const idUnico = await gerarIdUnico()
+
+      const novoPedido: Pedido = {
+        id: idUnico,
+        data: new Date().toLocaleString("pt-BR"),
+        itens: [...carrinho],
+        total: totalComTaxa,
+        formaPagamento,
+        valorPago: formaPagamento === "dinheiro" ? Number.parseFloat(valorPago) : undefined,
+        troco: formaPagamento === "dinheiro" ? calcularTroco() : undefined,
+        cliente: nomeClientePadrao,
+        tipoEntrega,
+        enderecoEntrega: tipoEntrega === "entrega" ? enderecoEntrega : undefined,
+        localizacao: localizacaoFinal || undefined,
+        status: "enviado",
+      }
+
+      console.log("📋 Dados do pedido:", novoPedido)
+
+      if (!modoTeste) {
+        // 🔴 MODO PRODUÇÃO - Salvar no banco real
+        console.log("💾 Salvando pedido no banco...")
+
+        const dadosParaInserir: any = {
+          id: novoPedido.id,
+          cliente: novoPedido.cliente,
+          total: novoPedido.total,
+          forma_pagamento: novoPedido.formaPagamento,
+          itens: novoPedido.itens,
+          tipo_entrega: novoPedido.tipoEntrega,
+          status: novoPedido.status,
+        }
+
+        if (novoPedido.valorPago !== undefined) {
+          dadosParaInserir.valor_pago = novoPedido.valorPago
+        }
+        if (novoPedido.troco !== undefined) {
+          dadosParaInserir.troco = novoPedido.troco
+        }
+        if (novoPedido.enderecoEntrega) {
+          dadosParaInserir.endereco_entrega = novoPedido.enderecoEntrega
+        }
+        if (novoPedido.localizacao) {
+          dadosParaInserir.localizacao = novoPedido.localizacao
+        }
+
+        const { error } = await supabase.from("pedidos").insert([dadosParaInserir])
+
+        if (error) {
+          console.error("❌ Erro ao inserir pedido:", error)
+          throw new Error(`Erro ao salvar pedido: ${error.message}`)
+        }
+
+        console.log("✅ Pedido inserido com sucesso:", novoPedido.id)
+
+        // Atualizar estoque
+        console.log("📦 Atualizando estoque...")
+        for (const item of carrinho) {
+          const novoEstoque = Math.max(0, item.bebida.estoque - item.quantidade)
+          const { error: estoqueError } = await supabase
+            .from("bebidas")
+            .update({ estoque: novoEstoque })
+            .eq("id", item.bebida.id)
+
+          if (estoqueError) {
+            console.error("❌ Erro ao atualizar estoque:", estoqueError)
           }
-        } catch (error) {
-          console.error("❌ Erro na integração com sistema principal:", error)
         }
-      }
 
-      const enviarWhatsApp = () => {
-        let mensagem = `🍺 *NOVO PEDIDO - ${novoPedido.id}* 🍺\n\n`
-        mensagem += `👤 *Cliente:* ${novoPedido.cliente}\n`
-        mensagem += `📅 *Data:* ${new Date(novoPedido.data).toLocaleString("pt-BR")}\n\n`
-        mensagem += `🛒 *Itens do Pedido:*\n`
-
-        novoPedido.itens.forEach((item) => {
-          mensagem += `• ${item.quantidade}x ${item.bebida.nome} - R$ ${(item.bebida.preco * item.quantidade).toFixed(2)}\n`
+        await carregarBebidas()
+      } else {
+        // 🧪 MODO TESTE - Apenas simular
+        console.log("🧪 MODO TESTE - Pedido simulado (não salvo no banco)")
+        addToast({
+          type: "info",
+          title: "🧪 MODO TESTE ATIVO",
+          description: "Pedido criado apenas para demonstração!",
         })
-
-        mensagem += `\n💰 *Total:* R$ ${novoPedido.total.toFixed(2)}\n`
-        mensagem += `💳 *Pagamento:* ${novoPedido.formaPagamento === "cartao" ? "Cartão" : novoPedido.formaPagamento === "pix" ? "PIX" : "Dinheiro"}\n`
-
-        if (novoPedido.formaPagamento === "dinheiro" && novoPedido.troco > 0) {
-          mensagem += `💵 *Valor pago:* R$ ${novoPedido.valorPago.toFixed(2)}\n`
-          mensagem += `🔄 *Troco:* R$ ${novoPedido.troco.toFixed(2)}\n`
-        }
-
-        if (novoPedido.endereco) {
-          mensagem += `🏠 *Endereço:* ${novoPedido.endereco}\n`
-        } else {
-          mensagem += `🏪 *Retirada no balcão*\n`
-        }
-
-        if (novoPedido.observacoes) {
-          mensagem += `📝 *Observações:* ${novoPedido.observacoes}\n`
-        }
-
-        const whatsappUrl = `https://wa.me/${TELEFONE_WHATSAPP}?text=${encodeURIComponent(mensagem)}`
-
-        try {
-          // Try multiple methods to ensure WhatsApp opens
-          window.open(whatsappUrl, "_blank")
-
-          setTimeout(() => {
-            const link = document.createElement("a")
-            link.href = whatsappUrl
-            link.target = "_blank"
-            link.click()
-          }, 100)
-
-          console.log("✅ Mensagem enviada para WhatsApp")
-        } catch (error) {
-          console.error("❌ Erro ao enviar para WhatsApp:", error)
-        }
       }
 
-      console.log("🔄 Finalizando pedido:", novoPedido)
       setPedidos((prev) => [novoPedido, ...prev])
+      setPedidoAtual(novoPedido)
 
-      enviarWhatsApp()
+      // ⚡ COMPORTAMENTO AUTOMÁTICO PARA TODOS OS DISPOSITIVOS
+      setTimeout(async () => {
+        await compartilharComprovanteAutomatico(novoPedido)
+        setTelaAtual("comprovante")
+      }, 300)
 
-      setCarrinho([])
-      setCliente("")
-      setEndereco("")
-      setObservacoes("")
-      setTelaAtual("inicio")
-
-      addToast({
-        type: "success",
-        title: "Pedido finalizado!",
-        description: "Seu pedido foi registrado e enviado para WhatsApp.",
-      })
+      console.log("✅ Pedido finalizado com sucesso:", novoPedido.id)
     } catch (error) {
       console.error("❌ Erro ao finalizar pedido:", error)
       addToast({
         type: "error",
         title: "Erro ao finalizar pedido",
-        description: "Ocorreu um erro ao processar seu pedido. Tente novamente.",
+        description: error instanceof Error ? error.message : "Erro desconhecido",
       })
     } finally {
-      setProcessandoPedido(false)
+      setCarregando(false)
     }
   }
 
