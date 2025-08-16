@@ -29,7 +29,7 @@ import Image from "next/image"
 import { createClient } from "@supabase/supabase-js"
 import { ToastProvider, useToast } from "@/components/toast"
 
-const SISTEMA_API_URL = "https://appbebidason.vercel.app/"
+const SISTEMA_API_URL = "https://appbebidason.vercel.app"
 const USAR_INTEGRACAO = true
 
 // 🗄️ CONFIGURAÇÃO DO SUPABASE
@@ -614,14 +614,14 @@ function BebidasOnAppContent() {
       return
     }
 
-    if (!cliente.trim()) {
-      addToast({
-        type: "error",
-        title: "Nome do cliente ausente!",
-        description: "Por favor, informe o nome do cliente.",
-      })
-      return
-    }
+    // if (!cliente.trim()) {
+    //   addToast({
+    //     type: "error",
+    //     title: "Nome do cliente ausente!",
+    //     description: "Por favor, informe o nome do cliente.",
+    //   })
+    //   return
+    // }
 
     try {
       setProcessandoPedido(true)
@@ -635,7 +635,7 @@ function BebidasOnAppContent() {
         formaPagamento,
         valorPago: formaPagamento === "dinheiro" ? valorPago : total,
         troco: formaPagamento === "dinheiro" ? (valorPago || 0) - total : 0,
-        cliente,
+        cliente: cliente.trim() || "Cliente",
         tipoEntrega,
         endereco: tipoEntrega === "entrega" ? endereco : "",
         observacoes,
